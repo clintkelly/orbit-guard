@@ -62,12 +62,33 @@ function paddle:flash()
 	self.flash_timer = 5
 end
 
+-- brick class --
+brick = {}
+function brick:new(x, y)
+	local obj = {
+		x = x or 60,
+		y = y or 20,
+		width = 10,
+		height = 4,
+		active = true
+	}
+	setmetatable(obj, self)
+	self.__index = self
+	return obj
+end
+
+function brick:draw()
+	if self.active then
+		rectfill(self.x, self.y, self.x + self.width - 1, self.y + self.height - 1, 12)
+	end
+end
+
 -- ball class --
 ball = {}
 function ball:new()
 	local obj = {
 		x = 64,
-		y = 15,
+		y = 40,
 		radius = 2,
 		dx = 1 + rnd(1), -- random x speed 1-3
 		dy = 1 + rnd(1)  -- random y speed 1-2
@@ -90,38 +111,32 @@ function min_all(...)
     return m
 end
 
-function ball:check_paddle_collision(next_x, next_y)
-
+function ball:check_box_collision(next_x, next_y, box_x, box_y, box_w, box_h)
 	-- Detect if there is any collision at all - if not, just return
-	if next_x + self.radius < player_paddle.x  then return "none" end
-	if next_x - self.radius > player_paddle.x + player_paddle.width then return "none" end
-	if next_y + self.radius < player_paddle.y then return "none" end
-	if next_y - self.radius > player_paddle.y + player_paddle.height then return "none" end
+	if next_x + self.radius < box_x then return "none" end
+	if next_x - self.radius > box_x + box_w then return "none" end
+	if next_y + self.radius < box_y then return "none" end
+	if next_y - self.radius > box_y + box_h then return "none" end
 
-	-- First just check for any ovelap - if none exists, then exit early
-	-- RHS of ball / LHS of paddle
-	local overlap_left = next_x + self.radius - player_paddle.x
-	-- LHS of ball / RHS of paddle
-	local overlap_right = player_paddle.x + player_paddle.width - (next_x - self.radius)
-	-- Bottom of ball / top of paddle
-	local overlap_top = next_y + self.radius - player_paddle.y
-	-- Top of ball / bottom of paddle (maybe doesn't matter)
-	local overlap_bottom = player_paddle.y + player_paddle.height - (next_y - self.radius)
-
-	printh("-------------------", "log.txt")
-	printh("ol="..overlap_left, "log.txt")
-	printh("or="..overlap_right, "log.txt")
-	printh("ot="..overlap_top, "log.txt")
-	printh("ob="..overlap_bottom, "log.txt")
+	-- Calculate overlaps to determine collision direction
+	-- RHS of ball / LHS of box
+	local overlap_left = next_x + self.radius - box_x
+	-- LHS of ball / RHS of box
+	local overlap_right = box_x + box_w - (next_x - self.radius)
+	-- Bottom of ball / top of box
+	local overlap_top = next_y + self.radius - box_y
+	-- Top of ball / bottom of box
+	local overlap_bottom = box_y + box_h - (next_y - self.radius)
 
 	min_overlap = min_all(overlap_left, overlap_right, overlap_top, overlap_bottom)
-	printh("min="..min_overlap, "log.txt")
 	if min_overlap == overlap_left or min_overlap == overlap_right then
-		printh("side", "log.txt")
 		return "side"
 	end
-	print("top", "log.txt")
 	return "top"
+end
+
+function ball:check_paddle_collision(next_x, next_y)
+	return self:check_box_collision(next_x, next_y, player_paddle.x, player_paddle.y, player_paddle.width, player_paddle.height)
 end
 
 function ball:update()
@@ -132,11 +147,13 @@ function ball:update()
 	-- check wall collisions
 	if next_x - self.radius <= 0 or next_x + self.radius >= 128 then
 		self.dx = -self.dx
+		sfx(3)
 	end
 	
 	-- bounce off top bar (7 pixels tall)
 	if next_y - self.radius <= 7 then
 		self.dy = -self.dy
+		sfx(3)
 	end
 	
 	-- check if ball hits bottom (lose life)
@@ -146,9 +163,9 @@ function ball:update()
 		if player_lives <= 0 then
 			game_state = "game_over"
 		else
-			-- reset ball position (below the black bar)
+			-- reset ball position (below the bricks)
 			self.x = 64
-			self.y = 15
+			self.y = 40
 			self.dx = 1 + rnd(1)
 			self.dy = 1 + rnd(1)
 			if rnd(1) < 0.5 then
@@ -162,11 +179,33 @@ function ball:update()
 	if collision == "side" then
 		self.dx = -self.dx
 		player_paddle:flash()
+		player_score += 1
 		sfx(0)
 	elseif collision == "top" then
 		self.dy = -abs(self.dy)
 		player_paddle:flash()
+		player_score += 1
 		sfx(0)
+	end
+	
+	-- check brick collisions
+	for brick in all(bricks) do
+		if brick.active then
+			local brick_collision = self:check_box_collision(next_x, next_y, brick.x, brick.y, brick.width, brick.height)
+			if brick_collision == "side" then
+				self.dx = -self.dx
+				brick.active = false
+				player_score += 10
+				sfx(2)
+				break
+			elseif brick_collision == "top" then
+				self.dy = -self.dy
+				brick.active = false
+				player_score += 10
+				sfx(2)
+				break
+			end
+		end
 	end
 	
 	-- move ball
@@ -181,11 +220,28 @@ end
 -- game state management --
 game_state = "start"
 player_lives = 5
+player_score = 0
+bricks = {}
 
 function _init()
 	player_paddle = paddle:new()
 	game_ball = ball:new()
 	player_lives = 5
+	player_score = 0
+	-- initialize bricks
+	init_bricks()
+end
+
+function init_bricks()
+	bricks = {}
+	-- create 3 rows of bricks
+	for row = 0, 2 do
+		for col = 0, 11 do
+			local brick_x = col * 11 + 1 -- 11 pixels spacing (10 width + 1 gap)
+			local brick_y = 15 + row * 6 -- start at y=15, 6 pixels spacing (4 height + 2 gap)
+			add(bricks, brick:new(brick_x, brick_y))
+		end
+	end
 end
 
 function _update60()
@@ -216,6 +272,9 @@ function update_start()
 		player_paddle = paddle:new()
 		game_ball = ball:new()
 		player_lives = 5
+		player_score = 0
+		-- reset bricks
+		init_bricks()
 	end
 end
 
@@ -238,8 +297,13 @@ function draw_game()
 	rectfill(0, 0, 127, 6, 0)
 	player_paddle:draw()
 	game_ball:draw()
-	-- display lives in the black bar
+	-- draw bricks
+	for brick in all(bricks) do
+		brick:draw()
+	end
+	-- display lives and score in the black bar
 	print("lives: "..player_lives, 2, 1, 7)
+	print("score: "..player_score, 70, 1, 7)
 end
 
 -- game over functions --
