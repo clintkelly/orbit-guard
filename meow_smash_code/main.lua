@@ -12,6 +12,7 @@ function paddle:new()
 		dx = 0, -- current speed
 		friction = 1.2, -- factor by which to reduce speed every frame after button is released
 		flash_timer = 0, -- timer for red flash effect
+		last_direction = 0, -- track last movement direction for ball launch
 	}
 	setmetatable(obj, self)
 	self.__index = self
@@ -23,10 +24,12 @@ function paddle:update()
 	-- left/right movement
 	if btn(0) then -- left
 		self.dx = -1 * self.max_speed
+		self.last_direction = -1
 		button_pressed = true
 	end
 	if btn(1) then -- right
 		self.dx = self.max_speed
+		self.last_direction = 1
 		button_pressed = true
 	end
 
@@ -90,13 +93,10 @@ function ball:new()
 		x = 64,
 		y = 40,
 		radius = 2,
-		dx = 1 + rnd(1), -- random x speed 1-3
-		dy = 1 + rnd(1)  -- random y speed 1-2
+		dx = 0, -- start stationary
+		dy = 0, -- start stationary
+		is_sticky = true, -- start attached to paddle
 	}
-	-- randomize initial direction
-	if rnd(1) < 0.5 then
-		obj.dx = -obj.dx
-	end
 	setmetatable(obj, self)
 	self.__index = self
 	return obj
@@ -140,6 +140,33 @@ function ball:check_paddle_collision(next_x, next_y)
 end
 
 function ball:update()
+	-- handle sticky state
+	if self.is_sticky then
+		-- stick ball to top of paddle
+		self.x = player_paddle.x + player_paddle.width / 2
+		self.y = player_paddle.y - self.radius
+		
+		-- check for launch (X button)
+		if btnp(4) then
+			self.is_sticky = false
+			local speed = 2
+			if player_paddle.last_direction < 0 then
+				-- launch 45 degrees to the left
+				self.dx = -speed * 0.707 -- cos(45°)
+				self.dy = -speed * 0.707 -- sin(45°) - negative for upward
+			elseif player_paddle.last_direction > 0 then
+				-- launch 45 degrees to the right
+				self.dx = speed * 0.707
+				self.dy = -speed * 0.707
+			else
+				-- launch straight up if no direction set
+				self.dx = 0
+				self.dy = -speed
+			end
+		end
+		return -- don't do normal physics when sticky
+	end
+	
 	-- calculate next position
 	local next_x = self.x + self.dx
 	local next_y = self.y + self.dy
@@ -163,47 +190,51 @@ function ball:update()
 		if player_lives <= 0 then
 			game_state = "game_over"
 		else
-			-- reset ball position (below the bricks)
-			self.x = 64
-			self.y = 40
-			self.dx = 1 + rnd(1)
-			self.dy = 1 + rnd(1)
-			if rnd(1) < 0.5 then
-				self.dx = -self.dx
-			end
+			-- reset ball to sticky state
+			self.is_sticky = true
+			self.dx = 0
+			self.dy = 0
 		end
 	end
 	
-	-- check paddle collision
-	local collision = self:check_paddle_collision(next_x, next_y)
-	if collision == "side" then
-		self.dx = -self.dx
-		player_paddle:flash()
-		player_score += 1
-		sfx(0)
-	elseif collision == "top" then
-		self.dy = -abs(self.dy)
-		player_paddle:flash()
-		player_score += 1
-		sfx(0)
+	-- check paddle collision (only when not sticky)
+	if not self.is_sticky then
+		local collision = self:check_paddle_collision(next_x, next_y)
+		if collision == "side" then
+			self.dx = -self.dx
+			player_paddle:flash()
+			player_score += 1
+			sfx(0)
+		elseif collision == "top" then
+			self.dy = -abs(self.dy)
+			player_paddle:flash()
+			player_score += 1
+			sfx(0)
+		end
 	end
 	
 	-- check brick collisions
+	local hit_a_brick = false -- make sure we don't bounce twice
+
 	for brick in all(bricks) do
 		if brick.active then
 			local brick_collision = self:check_box_collision(next_x, next_y, brick.x, brick.y, brick.width, brick.height)
 			if brick_collision == "side" then
-				self.dx = -self.dx
+				if not hit_a_brick then 
+					self.dx = -self.dx
+					hit_a_brick = true
+				end
 				brick.active = false
 				player_score += 10
 				sfx(2)
-				break
 			elseif brick_collision == "top" then
-				self.dy = -self.dy
+				if not hit_a_brick then 
+					self.dy = -self.dy
+					hit_a_brick = true
+				end
 				brick.active = false
 				player_score += 10
 				sfx(2)
-				break
 			end
 		end
 	end
