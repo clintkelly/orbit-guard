@@ -1,5 +1,36 @@
 -- meow smash game --
 
+-- level data --
+levels = {
+	-- level 1: simple pattern
+	{
+		"",
+		"",
+		"",
+		"....N"
+	},
+	-- level 1: simple pattern
+	{
+		"N.N.N.N.N.N"
+	},
+	-- level 2: multi-hit and unbreakable bricks
+	{
+		"U2222222222U",
+		"U3333333333U",
+		"U2222222222U",
+	},
+	-- level 3: mixed with speed bricks
+	{
+		"N.S.N.S.N.S.N",
+		".2.3.2.3.2.3.",
+		"S.N.S.N.S.N.S",
+		".3.2.3.2.3.2.",
+		"N.S.N.S.N.S.N"
+	}
+}
+
+current_level = 1
+
 -- paddle class --
 paddle = {}
 function paddle:new()
@@ -67,22 +98,65 @@ end
 
 -- brick class --
 brick = {}
-function brick:new(x, y)
+function brick:new(x, y, brick_type)
 	local obj = {
 		x = x or 60,
 		y = y or 20,
 		width = 10,
 		height = 4,
-		active = true
+		active = true,
+		brick_type = brick_type or "N",
+		hits_remaining = 1,
+		breakable = true
 	}
+	
+	-- set properties based on brick type
+	if brick_type == "U" then
+		obj.breakable = false
+	elseif brick_type >= "2" and brick_type <= "9" then
+		obj.hits_remaining = tonum(brick_type)
+	end
+	
 	setmetatable(obj, self)
 	self.__index = self
 	return obj
 end
 
+function brick:hit()
+	if not self.breakable then
+		return false -- unbreakable brick
+	end
+	
+	self.hits_remaining -= 1
+	if self.hits_remaining <= 0 then
+		self.active = false
+		return true -- brick destroyed
+	end
+	return false -- brick damaged but not destroyed
+end
+
 function brick:draw()
 	if self.active then
-		rectfill(self.x, self.y, self.x + self.width - 1, self.y + self.height - 1, 12)
+		local color = 12 -- default normal brick color
+		
+		if self.brick_type == "U" then
+			color = 5 -- dark gray for unbreakable
+		elseif self.brick_type >= "2" and self.brick_type <= "9" then
+			-- multi-hit bricks get different colors based on remaining hits
+			if self.hits_remaining >= 4 then
+				color = 8 -- red for high hits
+			elseif self.hits_remaining >= 2 then
+				color = 9 -- orange for medium hits
+			else
+				color = 10 -- yellow for low hits
+			end
+		elseif self.brick_type == "S" then
+			color = 11 -- green for speed bricks
+		elseif self.brick_type == "M" then
+			color = 13 -- purple for moving bricks
+		end
+		
+		rectfill(self.x, self.y, self.x + self.width - 1, self.y + self.height - 1, color)
 	end
 end
 
@@ -146,23 +220,21 @@ function ball:update()
 		self.x = player_paddle.x + player_paddle.width / 2
 		self.y = player_paddle.y - self.radius
 		
-		-- check for launch (X button)
-		if btnp(4) then
+		-- check for launch
+		if btnp(4) then -- Z button - launch left
 			self.is_sticky = false
+			player_combo = 0 -- reset combo when ball launches
 			local speed = 2
-			if player_paddle.last_direction < 0 then
-				-- launch 45 degrees to the left
-				self.dx = -speed * 0.707 -- cos(45°)
-				self.dy = -speed * 0.707 -- sin(45°) - negative for upward
-			elseif player_paddle.last_direction > 0 then
-				-- launch 45 degrees to the right
-				self.dx = speed * 0.707
-				self.dy = -speed * 0.707
-			else
-				-- launch straight up if no direction set
-				self.dx = 0
-				self.dy = -speed
-			end
+			-- launch 45 degrees to the left
+			self.dx = -speed * 0.707 -- cos(45°)
+			self.dy = -speed * 0.707 -- sin(45°) - negative for upward
+		elseif btnp(5) then -- X button - launch right
+			self.is_sticky = false
+			player_combo = 0 -- reset combo when ball launches
+			local speed = 2
+			-- launch 45 degrees to the right
+			self.dx = speed * 0.707
+			self.dy = -speed * 0.707
 		end
 		return -- don't do normal physics when sticky
 	end
@@ -186,6 +258,7 @@ function ball:update()
 	-- check if ball hits bottom (lose life)
 	if next_y + self.radius >= 128 then
 		player_lives -= 1
+		player_combo = 0 -- reset combo when ball is lost
 		sfx(1) -- play life lost sound
 		if player_lives <= 0 then
 			game_state = "game_over"
@@ -204,11 +277,13 @@ function ball:update()
 			self.dx = -self.dx
 			player_paddle:flash()
 			player_score += 1
+			player_combo = 0 -- reset combo when ball hits paddle
 			sfx(0)
 		elseif collision == "top" then
 			self.dy = -abs(self.dy)
 			player_paddle:flash()
 			player_score += 1
+			player_combo = 0 -- reset combo when ball hits paddle
 			sfx(0)
 		end
 	end
@@ -224,16 +299,44 @@ function ball:update()
 					self.dx = -self.dx
 					hit_a_brick = true
 				end
-				brick.active = false
-				player_score += 10
+				local destroyed = brick:hit()
+				if destroyed then
+					local points = 10 * (player_combo * 10 + 1)
+					player_score += points
+					player_combo += 1 -- increase combo for each brick hit
+					-- handle special brick effects
+					if brick.brick_type == "S" then
+						-- speed brick: increase ball speed
+						self.dx = self.dx * 1.2
+						self.dy = self.dy * 1.2
+					end
+				else
+					local points = 5 * (player_combo * 10 + 1)
+					player_score += points -- partial points for damaged brick
+					player_combo += 1 -- increase combo even for damaged bricks
+				end
 				sfx(2)
 			elseif brick_collision == "top" then
 				if not hit_a_brick then 
 					self.dy = -self.dy
 					hit_a_brick = true
 				end
-				brick.active = false
-				player_score += 10
+				local destroyed = brick:hit()
+				if destroyed then
+					local points = 10 * (player_combo * 10 + 1)
+					player_score += points
+					player_combo += 1 -- increase combo for each brick hit
+					-- handle special brick effects
+					if brick.brick_type == "S" then
+						-- speed brick: increase ball speed
+						self.dx = self.dx * 1.2
+						self.dy = self.dy * 1.2
+					end
+				else
+					local points = 5 * (player_combo * 10 + 1)
+					player_score += points -- partial points for damaged brick
+					player_combo += 1 -- increase combo even for damaged bricks
+				end
 				sfx(2)
 			end
 		end
@@ -246,12 +349,39 @@ end
 
 function ball:draw()
 	circfill(self.x, self.y, self.radius, 10)
+	
+	-- draw launch indicators when sticky
+	if self.is_sticky then
+		self:draw_launch_indicators()
+	end
+end
+
+function ball:draw_launch_indicators()
+	local line_length = 15
+	local speed = 2
+	
+	-- left launch indicator (Z button)
+	local left_dx = -speed * 0.707
+	local left_dy = -speed * 0.707
+	local left_end_x = self.x + left_dx * line_length / 2
+	local left_end_y = self.y + left_dy * line_length / 2
+	line(self.x, self.y, left_end_x, left_end_y, 6) -- cyan line
+	print("z", left_end_x - 2, left_end_y - 3, 6)
+	
+	-- right launch indicator (X button)
+	local right_dx = speed * 0.707
+	local right_dy = -speed * 0.707
+	local right_end_x = self.x + right_dx * line_length / 2
+	local right_end_y = self.y + right_dy * line_length / 2
+	line(self.x, self.y, right_end_x, right_end_y, 6) -- cyan line
+	print("x", right_end_x - 2, right_end_y - 3, 6)
 end
 
 -- game state management --
 game_state = "start"
 player_lives = 5
 player_score = 0
+player_combo = 0
 bricks = {}
 
 function _init()
@@ -259,20 +389,44 @@ function _init()
 	game_ball = ball:new()
 	player_lives = 5
 	player_score = 0
+	player_combo = 0
 	-- initialize bricks
 	init_bricks()
 end
 
 function init_bricks()
 	bricks = {}
-	-- create 3 rows of bricks
-	for row = 0, 2 do
-		for col = 0, 11 do
-			local brick_x = col * 11 + 1 -- 11 pixels spacing (10 width + 1 gap)
-			local brick_y = 15 + row * 6 -- start at y=15, 6 pixels spacing (4 height + 2 gap)
-			add(bricks, brick:new(brick_x, brick_y))
+	load_level(current_level)
+end
+
+function load_level(level_num)
+	bricks = {}
+	if level_num > #levels then
+		return -- no more levels
+	end
+	
+	local level_data = levels[level_num]
+	for row = 1, #level_data do
+		local row_string = level_data[row]
+		for col = 1, #row_string do
+			local char = sub(row_string, col, col)
+			if char != "." then -- not empty space
+				local brick_x = (col - 1) * 10 + 4 -- 10 pixels spacing, start at x=4
+				local brick_y = 15 + (row - 1) * 6 -- start at y=15, 6 pixels spacing
+				add(bricks, brick:new(brick_x, brick_y, char))
+			end
 		end
 	end
+end
+
+function count_breakable_bricks()
+	local count = 0
+	for brick in all(bricks) do
+		if brick.active and brick.breakable then
+			count += 1
+		end
+	end
+	return count
 end
 
 function _update60()
@@ -280,6 +434,10 @@ function _update60()
 		update_start()
 	elseif game_state == "game" then
 		update_game()
+	elseif game_state == "level_clear" then
+		update_level_clear()
+	elseif game_state == "victory" then
+		update_victory()
 	elseif game_state == "game_over" then
 		update_game_over()
 	end
@@ -290,6 +448,10 @@ function _draw()
 		draw_start()
 	elseif game_state == "game" then
 		draw_game()
+	elseif game_state == "level_clear" then
+		draw_level_clear()
+	elseif game_state == "victory" then
+		draw_victory()
 	elseif game_state == "game_over" then
 		draw_game_over()
 	end
@@ -304,6 +466,8 @@ function update_start()
 		game_ball = ball:new()
 		player_lives = 5
 		player_score = 0
+		player_combo = 0
+		current_level = 1
 		-- reset bricks
 		init_bricks()
 	end
@@ -319,6 +483,16 @@ end
 function update_game()
 	player_paddle:update()
 	game_ball:update()
+	
+	-- check if level is complete
+	if count_breakable_bricks() == 0 then
+		current_level += 1
+		if current_level > #levels then
+			game_state = "victory"
+		else
+			game_state = "level_clear"
+		end
+	end
 end
 
 function draw_game()
@@ -335,6 +509,8 @@ function draw_game()
 	-- display lives and score in the black bar
 	print("lives: "..player_lives, 2, 1, 7)
 	print("score: "..player_score, 70, 1, 7)
+	print("combo: "..player_combo, 2, 122, 7)
+	print("level: "..current_level, 65, 122, 7)
 end
 
 -- game over functions --
@@ -351,4 +527,46 @@ function draw_game_over()
 	rect(10, 40, 117, 80, 7) -- white border
 	print("GAME OVER!", 40, 50, 8)
 	print("Press any key to continue", 15, 65, 6)
+end
+
+-- level clear functions --
+function update_level_clear()
+	if btnp(0) or btnp(1) or btnp(2) or btnp(3) or btnp(4) or btnp(5) then
+		sfx(0)
+		-- reset ball and paddle for next level
+		game_ball = ball:new()
+		player_paddle = paddle:new()
+		player_combo = 0
+		load_level(current_level)
+		game_state = "game"
+	end
+end
+
+function draw_level_clear()
+	-- don't clear screen - keep last game image
+	-- draw black rectangle for level clear text
+	-- draw the screen one more time so that we can clear the last brick
+	draw_game()
+	rectfill(10, 40, 117, 80, 0)
+	rect(10, 40, 117, 80, 7) -- white border
+	print("LEVEL "..tostr(current_level-1).." CLEAR!", 25, 50, 11)
+	print("Press any key for next level", 15, 65, 6)
+end
+
+-- victory functions --
+function update_victory()
+	if btnp(0) or btnp(1) or btnp(2) or btnp(3) or btnp(4) or btnp(5) then
+		game_state = "start"
+	end
+end
+
+function draw_victory()
+	-- don't clear screen - keep last game image
+	-- draw black rectangle for victory text
+	rectfill(10, 30, 117, 90, 0)
+	rect(10, 30, 117, 90, 7) -- white border
+	print("CONGRATULATIONS!", 25, 40, 10)
+	print("You beat all levels!", 20, 55, 11)
+	print("Final Score: "..player_score, 25, 70, 7)
+	print("Press any key to continue", 15, 80, 6)
 end
