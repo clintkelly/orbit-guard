@@ -179,7 +179,20 @@ function paddle:draw()
 	elseif self.size_multiplier > 1.0 then
 		color = 14 -- pink when expanded
 	end
-	rectfill(self.x, self.y, self.x + self.width - 1, self.y + self.height - 1, color)
+	
+	-- draw paddle as three lines to simulate curve
+	-- bottom line: full width
+	line(self.x, self.y + 2, self.x + self.width - 1, self.y + 2, color)
+	
+	-- middle line: covers zones B, C, D (from 15% to 85% of width)
+	local middle_start = self.x + self.width * 0.15
+	local middle_end = self.x + self.width * 0.85
+	line(middle_start, self.y + 1, middle_end, self.y + 1, color)
+	
+	-- top line: covers just zone C (from 35% to 65% of width)
+	local top_start = self.x + self.width * 0.35
+	local top_end = self.x + self.width * 0.65
+	line(top_start, self.y, top_end, self.y, color)
 end
 
 function paddle:flash()
@@ -800,14 +813,8 @@ function ball:update()
 				self.dx = 0
 				self.dy = 0
 			else
-				-- normal bounce behavior
-				if collision == "side" then
-					self.dx = -self.dx
-				elseif collision == "top" then
-					self.dy = -abs(self.dy)
-				end
-				-- add paddle velocity influence with speed cap
-				self:apply_paddle_velocity_with_cap()
+				-- arkanoid-style zone-based bouncing
+				self:bounce_off_paddle_zone()
 			end
 			player_paddle:flash()
 			player_score += 1
@@ -833,50 +840,56 @@ function ball:draw()
 	end
 end
 
-function ball:apply_paddle_velocity_with_cap()
-	-- calculate current ball speed
+function ball:bounce_off_paddle_zone()
+	-- calculate current ball speed to maintain it
 	local current_speed = sqrt(self.dx * self.dx + self.dy * self.dy)
 	
-	-- calculate proposed new dx with paddle velocity
-	local paddle_influence = player_paddle.dx * paddle_velocity_transfer
-	local new_dx = self.dx + paddle_influence
-	local new_dy = self.dy
+	-- find where ball hit paddle (center of ball relative to paddle)
+	local ball_center_x = self.x
+	local paddle_left = player_paddle.x
+	local paddle_width = player_paddle.width
 	
-	-- check dx:dy ratio limit
-	local abs_dx = abs(new_dx)
-	local abs_dy = abs(new_dy)
+	-- calculate relative position on paddle (0 to 1)
+	local relative_pos = (ball_center_x - paddle_left) / paddle_width
 	
-	if abs_dy > 0 and abs_dx / abs_dy > max_ball_dx_dy_ratio then
-		-- ratio is too high, need to adjust while conserving total velocity
-		-- we want: abs(dx) / abs(dy) = max_ratio
-		-- and: dx^2 + dy^2 = current_speed^2
-		
-		local ratio = max_ball_dx_dy_ratio
-		-- solve: (ratio * dy)^2 + dy^2 = speed^2
-		-- dy^2 * (ratio^2 + 1) = speed^2
-		-- dy^2 = speed^2 / (ratio^2 + 1)
-		
-		local new_dy_magnitude = current_speed / sqrt(ratio * ratio + 1)
-		local new_dx_magnitude = new_dy_magnitude * ratio
-		
-		-- preserve original signs
-		new_dx = new_dx >= 0 and new_dx_magnitude or -new_dx_magnitude
-		new_dy = new_dy >= 0 and new_dy_magnitude or -new_dy_magnitude
+	-- clamp to paddle bounds
+	relative_pos = max(0, min(1, relative_pos))
+	
+	local bounce_angle_degrees
+
+	local middle_zone = false
+	
+	-- determine zone and bounce angle
+	if relative_pos <= 0.15 then
+		-- zone A (leftmost 15%)
+		bounce_angle_degrees = 150
+	elseif relative_pos <= 0.35 then
+		-- zone B (next 20%)
+		bounce_angle_degrees = 120
+	elseif relative_pos <= 0.65 then
+		middle_zone = true
+	elseif relative_pos <= 0.85 then
+		-- zone D (next 20%)
+		bounce_angle_degrees = 60
 	else
-		-- ratio is fine, apply speed cap
-		local new_speed_uncapped = sqrt(new_dx * new_dx + new_dy * new_dy)
-		local max_speed = current_speed * (1 + ball_speed_increase_cap)
+		-- zone E (rightmost 15%)
+		bounce_angle_degrees = 30
+	end
+
+	if middle_zone then
+		-- middle zone: bounce normally
+		self.dy = -self.dy
+	else
+		-- convert angle to radians (pico-8 uses different angle system)
+		-- in pico-8: 0 = right, 0.25 = up, 0.5 = left, 0.75 = down
+		-- convert degrees to pico-8 angle units
+		local angle_pico8 = bounce_angle_degrees / 360
 		
-		if new_speed_uncapped > max_speed then
-			-- scale down proportionally to maintain direction
-			local scale_factor = max_speed / new_speed_uncapped
-			new_dx = new_dx * scale_factor
-			new_dy = new_dy * scale_factor
-		end
+		-- calculate new velocity components maintaining speed
+		self.dx = current_speed * cos(angle_pico8)
+		self.dy = current_speed * sin(angle_pico8)
 	end
 	
-	self.dx = new_dx
-	self.dy = new_dy
 end
 
 function ball:draw_launch_indicators()
@@ -911,9 +924,7 @@ game_state = "start"
 player_lives = 5
 player_score = 0
 player_combo = 0
-paddle_velocity_transfer = 0.2 -- factor for transferring paddle velocity to ball
 powerup_fall_speed = 0.5 -- speed at which powerups fall
-ball_speed_increase_cap = 0.1 -- maximum ball speed increase from paddle velocity (10%)
 max_ball_dx_dy_ratio = 3.0 -- maximum ratio of horizontal to vertical velocity (3:1)
 bricks = {}
 powerups = {}
