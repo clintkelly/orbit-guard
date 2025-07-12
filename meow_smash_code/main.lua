@@ -184,14 +184,14 @@ function paddle:draw()
 	-- bottom line: full width
 	line(self.x, self.y + 2, self.x + self.width - 1, self.y + 2, color)
 	
-	-- middle line: covers zones B, C, D (from 15% to 85% of width)
-	local middle_start = self.x + self.width * 0.15
-	local middle_end = self.x + self.width * 0.85
+	-- middle line: covers zones B, C, D (from 20% to 80% of width)
+	local middle_start = self.x + self.width * 0.20
+	local middle_end = self.x + self.width * 0.80
 	line(middle_start, self.y + 1, middle_end, self.y + 1, color)
 	
-	-- top line: covers just zone C (from 35% to 65% of width)
-	local top_start = self.x + self.width * 0.35
-	local top_end = self.x + self.width * 0.65
+	-- top line: covers just zone C (from 40% to 60% of width)
+	local top_start = self.x + self.width * 0.40
+	local top_end = self.x + self.width * 0.60
 	line(top_start, self.y, top_end, self.y, color)
 end
 
@@ -561,7 +561,7 @@ function spawn_additional_balls()
 		
 		-- set random direction with negative dy (upward) and respect dx:dy ratio
 		local angle_offset = (rnd(0.6) - 0.3) -- random between -0.3 and 0.3
-		local speed = 2
+		local speed = default_ball_speed
 		local proposed_dx = speed * sin(angle_offset)
 		local proposed_dy = -speed * cos(angle_offset) -- negative for upward
 		
@@ -603,9 +603,11 @@ function handle_brick_hit(brick, ball, destroyed)
 		-- handle special brick effects
 		local effect = brick:on_destroy()
 		if effect == "speed" then
-			-- speed brick: increase ball speed
+			-- speed brick: increase ball speed and activate decay timer
 			ball.dx = ball.dx * 1.2
 			ball.dy = ball.dy * 1.2
+			ball.speed_boost_timer = 300 -- 5 seconds at 60fps
+			ball.speed_boost_active = true
 		elseif brick.drops_powerup and effect then
 			-- powerup brick: spawn powerup
 			spawn_powerup(effect, brick.x + brick.width/2, brick.y + brick.height)
@@ -615,7 +617,10 @@ function handle_brick_hit(brick, ball, destroyed)
 		player_score += points -- partial points for damaged brick
 		player_combo += 1 -- increase combo even for damaged bricks
 	end
-	sfx(2)
+	
+	-- play sound based on combo length (sound 6 to 13 max)
+	local sound_id = min(6 + player_combo - 1, 13)
+	sfx(sound_id)
 end
 
 function spawn_powerup(powerup_type, x, y)
@@ -681,6 +686,8 @@ function ball:new()
 		dx = 0, -- start stationary
 		dy = 0, -- start stationary
 		is_stuck_to_paddle = true, -- start attached to paddle
+		speed_boost_timer = 0, -- timer for speed boost decay
+		speed_boost_active = false -- whether speed boost is currently active
 	}
 	setmetatable(obj, self)
 	self.__index = self
@@ -755,7 +762,7 @@ function ball:update()
 				if ball_obj.is_stuck_to_paddle then
 					ball_obj.is_stuck_to_paddle = false
 					player_combo = 0 -- reset combo when ball launches
-					local speed = 2
+					local speed = default_ball_speed
 					if btnp(4) then -- Z button - launch left
 						ball_obj.dx = -speed * 0.707
 						ball_obj.dy = -speed * 0.707
@@ -829,6 +836,34 @@ function ball:update()
 	-- move ball
 	self.x += self.dx
 	self.y += self.dy
+	
+	-- handle speed boost decay
+	if self.speed_boost_active then
+		self.speed_boost_timer -= 1
+		if self.speed_boost_timer <= 0 then
+			-- speed boost expired, stop decay
+			self.speed_boost_active = false
+		else
+			-- gradually reduce speed back to default
+			local current_speed = sqrt(self.dx * self.dx + self.dy * self.dy)
+			if current_speed > default_ball_speed then
+				-- apply friction to reduce speed
+				local friction = 0.99 -- friction coefficient
+				self.dx *= friction
+				self.dy *= friction
+				
+				-- check if we've reached default speed
+				local new_speed = sqrt(self.dx * self.dx + self.dy * self.dy)
+				if new_speed <= default_ball_speed then
+					-- clamp to default speed
+					local scale = default_ball_speed / new_speed
+					self.dx *= scale
+					self.dy *= scale
+					self.speed_boost_active = false
+				end
+			end
+		end
+	end
 end
 
 function ball:draw()
@@ -860,19 +895,20 @@ function ball:bounce_off_paddle_zone()
 	local middle_zone = false
 	
 	-- determine zone and bounce angle
-	if relative_pos <= 0.15 then
-		-- zone A (leftmost 15%)
+	if relative_pos <= 0.20 then
+		-- zone A (leftmost 20%)
 		bounce_angle_degrees = 150
-	elseif relative_pos <= 0.35 then
+	elseif relative_pos <= 0.40 then
 		-- zone B (next 20%)
 		bounce_angle_degrees = 120
-	elseif relative_pos <= 0.65 then
+	elseif relative_pos <= 0.60 then
+		-- zone C (middle 20%)
 		middle_zone = true
-	elseif relative_pos <= 0.85 then
+	elseif relative_pos <= 0.80 then
 		-- zone D (next 20%)
 		bounce_angle_degrees = 60
 	else
-		-- zone E (rightmost 15%)
+		-- zone E (rightmost 20%)
 		bounce_angle_degrees = 30
 	end
 
@@ -894,7 +930,7 @@ end
 
 function ball:draw_launch_indicators()
 	local line_length = 15
-	local speed = 2
+	local speed = default_ball_speed
 	
 	-- left launch indicator (Z button)
 	local left_dx = -speed * 0.707
@@ -926,6 +962,7 @@ player_score = 0
 player_combo = 0
 powerup_fall_speed = 0.5 -- speed at which powerups fall
 max_ball_dx_dy_ratio = 3.0 -- maximum ratio of horizontal to vertical velocity (3:1)
+default_ball_speed = 2.0 -- default ball speed
 bricks = {}
 powerups = {}
 balls = {} -- array to track multiple balls
