@@ -191,6 +191,18 @@ title_frame_counter = 0
 title_fast_blink_timer = 0
 title_is_fast_blinking = false
 
+-- screen shake system
+screen_shaker = nil -- will be initialized in _init
+
+-- screen fade system
+fadeperc = 0 -- fade percentage: 0 = normal, 1 = completely black
+
+-- game over sequence variables
+game_over_shake_timer = 0 -- timer for game over shake delay
+game_over_text_visible = false -- whether to show game over text
+game_over_blink_timer = 0 -- timer for blinking text
+game_over_fade_started = false -- whether fade has started
+
 --========================================
 -- ██████   █████  ██████  ██████  ██      ███████ 
 -- ██   ██ ██   ██ ██   ██ ██   ██ ██      ██      
@@ -333,6 +345,98 @@ function paddle:reset_size()
 		self.x = 0
 	elseif self.x + self.width > 128 then
 		self.x = 128 - self.width
+	end
+end
+
+--========================================
+-- ███████ ██   ██  █████  ██   ██ ███████ ██████  
+-- ██      ██   ██ ██   ██ ██  ██  ██      ██   ██ 
+-- ███████ ███████ ███████ █████   █████   ██████  
+--      ██ ██   ██ ██   ██ ██  ██  ██      ██   ██ 
+-- ███████ ██   ██ ██   ██ ██   ██ ███████ ██   ██ 
+--========================================
+shaker = {}
+function shaker:new()
+	local obj = {
+		shake = 0 -- current shake intensity (0 = no shake)
+	}
+	setmetatable(obj, self)
+	self.__index = self
+	return obj
+end
+
+function shaker:small_shake()
+	-- initiate a small screen shake
+	self.shake = 0.3
+end
+
+function shaker:large_shake()
+	-- initiate a large screen shake
+	self.shake = 1.0
+end
+
+function shaker:shake_screen()
+	if self.shake <= 0 then
+		-- no shake, reset camera to normal
+		camera(0, 0)
+		return
+	end
+	
+	-- calculate random shake offset based on your provided algorithm
+	-- -16 +16 range
+	local shakex = 16 - rnd(32)
+	local shakey = 16 - rnd(32)
+	
+	-- scale by current shake intensity
+	shakex = shakex * self.shake
+	shakey = shakey * self.shake
+	
+	-- apply camera shake
+	camera(shakex, shakey)
+	
+	-- reduce shake intensity over time
+	self.shake = self.shake * 0.95
+	if self.shake < 0.05 then
+		self.shake = 0
+		camera(0, 0) -- ensure camera is reset when shake ends
+	end
+end
+
+--========================================
+-- ███████  █████  ██████  ███████ 
+-- ██      ██   ██ ██   ██ ██      
+-- █████   ███████ ██   ██ █████   
+-- ██      ██   ██ ██   ██ ██      
+-- ██      ██   ██ ██████  ███████ 
+--========================================
+-- fading
+function fadepal(_perc)
+	-- 0 means normal
+	-- 1 is completely black
+	
+	local p = flr(mid(0, _perc, 1) * 100)
+	
+	-- these are helper variables
+	local kmax, col, dpal, j, k
+	dpal = {0, 1, 1, 2, 1, 13, 6, 
+	        4, 4, 9, 3, 13, 1, 13, 14}
+	
+	-- now we go through all colors
+	for j = 1, 15 do
+		-- grab the current color
+		col = j
+		
+		-- now calculate how many
+		-- times we want to fade the
+		-- color.
+		kmax = (p + (j * 1.46)) / 22
+		for k = 1, kmax do
+			col = dpal[col]
+		end
+		
+		-- finally, we change the
+		-- palette
+		pal(j, col, 1)
 	end
 end
 
@@ -1221,6 +1325,8 @@ function _init()
 	player_score = 0
 	player_combo = 0
 	player_shield = nil -- clear shield
+	-- initialize screen shaker
+	screen_shaker = shaker:new()
 	-- initialize title screen animation
 	title_frame_counter = 0
 	title_fast_blink_timer = 0
@@ -1327,6 +1433,9 @@ function _update60()
 end
 
 function _draw()
+	-- apply screen shake before drawing anything
+	screen_shaker:shake_screen()
+	
 	if game_state == "start" then
 		draw_start()
 	elseif game_state == "game" then
@@ -1337,6 +1446,12 @@ function _draw()
 		draw_victory()
 	elseif game_state == "game_over" then
 		draw_game_over()
+	end
+	
+	-- fade the screen
+	pal()
+	if fadeperc ~= 0 then
+		fadepal(fadeperc)
 	end
 end
 
@@ -1358,6 +1473,9 @@ function update_start()
 		title_is_fast_blinking = true
 		title_fast_blink_timer = 60 -- blink fast for 1 second (60 frames)
 		
+		-- play start game sound
+		sfx(14)
+		
 		-- delay game start slightly to show the fast blink effect
 		-- we'll change state after a short delay instead of immediately
 		if title_fast_blink_timer == 60 then
@@ -1366,27 +1484,34 @@ function update_start()
 		end
 	end
 	
-	-- start game after fast blink effect is mostly done
+	-- start fade after fast blink effect is mostly done
 	if title_is_fast_blinking and title_fast_blink_timer <= 45 then
-		game_state = "game"
-		-- reset game objects
-		player_paddle = paddle:new()
-		balls = {ball:new()} -- reset to single ball
-		player_lives = 5
-		player_score = 0
-		player_combo = 0
-		current_level = 1
-		player_shield = nil -- clear shield
-		-- create new shuffled level order
-		create_shuffled_levels()
-		-- reset bricks and powerups
-		init_bricks()
-		powerups = {}
+		-- start fade to black
+		fadeperc = fadeperc + 0.025  -- fade speed (2x slower)
 		
-		-- reset title screen variables
-		title_frame_counter = 0
-		title_fast_blink_timer = 0
-		title_is_fast_blinking = false
+		-- once fully faded, start the game
+		if fadeperc >= 1.0 then
+			game_state = "game"
+			-- reset game objects
+			player_paddle = paddle:new()
+			balls = {ball:new()} -- reset to single ball
+			player_lives = 5
+			player_score = 0
+			player_combo = 0
+			current_level = 1
+			player_shield = nil -- clear shield
+			-- create new shuffled level order
+			create_shuffled_levels()
+			-- reset bricks and powerups
+			init_bricks()
+			powerups = {}
+			
+			-- reset title screen variables and fade
+			title_frame_counter = 0
+			title_fast_blink_timer = 0
+			title_is_fast_blinking = false
+			fadeperc = 0  -- reset fade for game
+		end
 	end
 end
 
@@ -1403,48 +1528,45 @@ function draw_start()
 	local box_x2 = title_x + #title_text * 4 + box_padding - 1  -- 4 pixels per character
 	local box_y2 = title_y + 6 + box_padding  -- text height is about 6 pixels
 	
-	-- determine title color based on animation state
-	local title_color = 7  -- default white
+	-- title is always white with white box
+	local title_color = 7  -- white
+	rect(box_x1, box_y1, box_x2, box_y2, title_color)
+	print(title_text, title_x, title_y, title_color)
+	
+	-- determine instruction text color based on animation state
+	local instruction_color = 6  -- default light grey
 	
 	if title_is_fast_blinking then
-		-- fast blinking: every 3 frames
-		if title_fast_blink_timer % 6 < 3 then
-			title_color = 7  -- white
+		-- very fast blinking: every 2 frames (faster than before)
+		if title_fast_blink_timer % 4 < 2 then
+			instruction_color = 6  -- light grey
 		else
-			title_color = 0  -- black (invisible)
+			instruction_color = 0  -- black (invisible)
 		end
 	else
-		-- slow pulsing through color cycle: white -> grey -> dark -> light green -> back
-		-- cycle every 120 frames (2 seconds at 60fps)
-		local cycle_position = (title_frame_counter % 120) / 120
+		-- faster pulsing through color cycle: white -> grey -> dark -> light green -> back
+		-- cycle every 80 frames (faster than before - about 1.3 seconds at 60fps)
+		local cycle_position = (title_frame_counter % 80) / 80
 		
 		if cycle_position < 0.25 then
-			-- white to grey
-			title_color = 7  -- white
+			-- white
+			instruction_color = 7  -- white
 		elseif cycle_position < 0.5 then
-			-- grey to dark grey
-			title_color = 6  -- light grey
+			-- light grey
+			instruction_color = 6  -- light grey
 		elseif cycle_position < 0.75 then
 			-- dark grey
-			title_color = 5  -- dark grey
+			instruction_color = 5  -- dark grey
 		else
-			-- light green back to white
-			title_color = 11  -- light green
+			-- light green
+			instruction_color = 11  -- light green
 		end
 	end
 	
-	-- draw title box (only if title is visible)
-	if title_color ~= 0 then
-		rect(box_x1, box_y1, box_x2, box_y2, title_color)
+	-- draw instruction text (only if visible)
+	if instruction_color ~= 0 then
+		print("Press any key to play", 20, 70, instruction_color)
 	end
-	
-	-- draw title text
-	if title_color ~= 0 then
-		print(title_text, title_x, title_y, title_color)
-	end
-	
-	-- draw instruction text (always visible)
-	print("Press any key to play", 20, 70, 6)
 end
 
 -- game functions --
@@ -1468,8 +1590,15 @@ function update_game()
 		player_lives = player_lives - 1
 		player_combo = 0
 		sfx(1) -- play life lost sound
+		screen_shaker:small_shake() -- shake screen when losing life
 		if player_lives <= 0 then
 			game_state = "game_over"
+			screen_shaker:large_shake() -- big shake for game over
+			-- initialize game over sequence
+			game_over_shake_timer = 120 -- 2 seconds of shake/delay before showing text
+			game_over_text_visible = false
+			game_over_blink_timer = 0
+			game_over_fade_started = false
 		else
 			-- reset to single sticky ball
 			balls = {ball:new()}
@@ -1539,18 +1668,82 @@ end
 
 -- game over functions --
 function update_game_over()
-	if btnp(0) or btnp(1) or btnp(2) or btnp(3) or btnp(4) or btnp(5) then
-		game_state = "start"
+	-- handle shake timer countdown
+	if game_over_shake_timer > 0 then
+		game_over_shake_timer = game_over_shake_timer - 1
+		if game_over_shake_timer <= 0 then
+			-- shake period over, show game over text
+			game_over_text_visible = true
+		end
+		return -- don't process button input during shake
+	end
+	
+	-- update blink timer for game over text
+	if game_over_text_visible then
+		game_over_blink_timer = game_over_blink_timer + 1
+	end
+	
+	-- handle fade sequence
+	if game_over_fade_started then
+		fadeperc = fadeperc + 0.025 -- same fade speed as title screen
+		if fadeperc >= 1.0 then
+			-- fade complete, go to start screen
+			game_state = "start"
+			-- reset all game over variables
+			game_over_shake_timer = 0
+			game_over_text_visible = false
+			game_over_blink_timer = 0
+			game_over_fade_started = false
+			fadeperc = 0
+		end
+		return -- don't process button input during fade
+	end
+	
+	-- handle button press (only when text is visible and not fading)
+	if game_over_text_visible and btnp(0) or btnp(1) or btnp(2) or btnp(3) or btnp(4) or btnp(5) then
+		-- start fade sequence
+		game_over_fade_started = true
+		sfx(14) -- play same sound as title screen
 	end
 end
 
 function draw_game_over()
+	-- during shake timer, just draw the game normally (keep last game image)
+	if game_over_shake_timer > 0 then
+		-- draw the normal game screen to show shake effect
+		draw_game()
+		return
+	end
+	
+	-- only show game over text after shake is done
+	if not game_over_text_visible then
+		return
+	end
+	
 	-- don't clear screen - keep last game image
 	-- draw black rectangle for game over text
 	rectfill(10, 40, 117, 80, 0)
 	rect(10, 40, 117, 80, 7) -- white border
 	print("GAME OVER!", 40, 50, 8)
-	print("Press any key to continue", 15, 65, 6)
+	
+	-- blinking "press any key" text (similar to title screen)
+	local instruction_color = 6 -- default light grey
+	
+	-- faster pulsing through color cycle like title screen
+	-- cycle every 80 frames (about 1.3 seconds at 60fps)
+	local cycle_position = (game_over_blink_timer % 80) / 80
+	
+	if cycle_position < 0.25 then
+		instruction_color = 7  -- white
+	elseif cycle_position < 0.5 then
+		instruction_color = 6  -- light grey
+	elseif cycle_position < 0.75 then
+		instruction_color = 5  -- dark grey
+	else
+		instruction_color = 11  -- light green
+	end
+	
+	print("Press any key to continue", 15, 65, instruction_color)
 end
 
 -- level clear functions --

@@ -49,6 +49,12 @@ function max(a, b)
     return math.max(a, b)
 end
 
+function mid(a, b, c)
+    -- PICO-8 mid function: returns middle value of three numbers
+    if a == nil or b == nil or c == nil then return b end
+    return math.max(a, math.min(b, c))
+end
+
 function flr(x)
     if x == nil then return nil end
     return math.floor(x)
@@ -139,6 +145,14 @@ end
 
 function print(text, x, y, color)
     -- No-op for tests (could log for debugging if needed)
+end
+
+function camera(x, y)
+    -- No-op for tests - screen shake camera positioning
+end
+
+function pal(c0, c1, p)
+    -- No-op for tests - palette manipulation for fade effects
 end
 
 --============================================
