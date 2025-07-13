@@ -68,7 +68,7 @@ pico8_shim.reset_all()
 print("Running test suites...\n")
 
 -- Set luaunit options
-luaunit.LuaUnit.verbosity = luaunit.VERBOSITY_DEFAULT
+luaunit.LuaUnit.verbosity = luaunit.VERBOSITY_QUIET
 
 -- Run the tests
 local runner = luaunit.LuaUnit.new()

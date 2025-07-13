@@ -15,6 +15,9 @@ function TestLevels:setUp()
     current_level = 1
     shuffled_levels = {}
     
+    -- Store original levels count
+    self.original_level_count = #levels
+    
     -- Reset random for consistent shuffling tests
     pico8_shim.clear_rnd_values()
 end
@@ -23,6 +26,12 @@ function TestLevels:tearDown()
     bricks = {}
     current_level = 1
     shuffled_levels = {}
+    
+    -- Remove any test levels that were added by clearing the table properly
+    while #levels > self.original_level_count do
+        table.remove(levels)
+    end
+    
     pico8_shim.clear_rnd_values()
 end
 
@@ -71,10 +80,10 @@ end
 function TestLevels:test_brick_character_mapping()
     -- Test a simple level with known brick types
     local test_level = {"NUS2M"}
-    levels[99] = test_level  -- Add temporary test level
-    current_level = 99
+    local test_level_index = #levels + 1
+    levels[test_level_index] = test_level
     
-    load_level(99)
+    load_level(test_level_index)
     
     luaunit.assertEquals(#bricks, 5, "Should create 5 bricks")
     
@@ -85,13 +94,13 @@ function TestLevels:test_brick_character_mapping()
     luaunit.assertEquals(bricks[4].hits_remaining, 2, "2 should create 2-hit brick")
     luaunit.assertEquals(bricks[5].color, 13, "M should create moving brick (purple)")
     
-    -- Clean up
-    levels[99] = nil
+    -- Clean up handled by tearDown
 end
 
 function TestLevels:test_multi_hit_brick_creation()
     local test_level = {"23456789"}
-    levels[98] = test_level
+    local test_level_index = #levels + 1
+    levels[test_level_index] = test_level
     
     load_level(98)
     
@@ -108,7 +117,8 @@ end
 
 function TestLevels:test_powerup_brick_creation()
     local test_level = {"P"}
-    levels[97] = test_level
+    local test_level_index = #levels + 1
+    levels[test_level_index] = test_level
     
     load_level(97)
     
@@ -131,8 +141,7 @@ function TestLevels:test_empty_space_handling()
     luaunit.assertEquals(bricks[1].x, 4, "First brick at position 0")
     luaunit.assertEquals(bricks[2].x, 28, "Second brick at position 2 (skipping position 1)")
     
-    -- Clean up
-    levels[96] = nil
+    -- Clean up handled by tearDown
 end
 
 --============================================
@@ -141,16 +150,16 @@ end
 
 function TestLevels:test_brick_positioning()
     local test_level = {"N"}
-    levels[95] = test_level
+    local test_level_index = #levels + 1
+    levels[test_level_index] = test_level
     
-    load_level(95)
+    load_level(test_level_index)
     
     -- First brick should be at (4, 15) as per level encoding rules
     luaunit.assertEquals(bricks[1].x, 4, "First brick x position")
     luaunit.assertEquals(bricks[1].y, 15, "First brick y position")
     
-    -- Clean up
-    levels[95] = nil
+    -- Clean up handled by tearDown
 end
 
 function TestLevels:test_multi_row_positioning()

@@ -82,21 +82,25 @@ end
 function TestBrickSystem:test_multi_hit_brick_color_progression()
     local brick = multi_hit_brick:new(50, 20, 5)
     
-    -- Initially should be red (high hits)
+    -- Initially should be red (high hits >= 4)
     luaunit.assertEquals(brick.color, 8)  -- red
     
-    -- Hit it twice
+    -- Hit it once
     brick:hit()
-    brick:hit()
-    luaunit.assertEquals(brick.hits_remaining, 3)
+    luaunit.assertEquals(brick.hits_remaining, 4)
     luaunit.assertEquals(brick.color, 8)  -- still red (>=4 hits)
     
     -- Hit it again
     brick:hit()
-    luaunit.assertEquals(brick.hits_remaining, 2)
-    luaunit.assertEquals(brick.color, 9)  -- orange (>=2 hits)
+    luaunit.assertEquals(brick.hits_remaining, 3)
+    luaunit.assertEquals(brick.color, 9)  -- orange (>=2 hits but <4)
     
     -- Hit it once more
+    brick:hit()
+    luaunit.assertEquals(brick.hits_remaining, 2)
+    luaunit.assertEquals(brick.color, 9)  -- still orange (>=2 hits)
+    
+    -- Hit it again
     brick:hit()
     luaunit.assertEquals(brick.hits_remaining, 1)
     luaunit.assertEquals(brick.color, 10)  -- yellow (1 hit)
@@ -174,7 +178,7 @@ function TestBrickSystem:test_moving_brick_boundary_collision()
 end
 
 function TestBrickSystem:test_moving_brick_left_boundary()
-    local brick = moving_brick:new(1, 20)  -- near left edge
+    local brick = moving_brick:new(0.4, 20)  -- near left edge (slightly more than 0 to trigger boundary)
     brick.move_direction = -1  -- moving left
     
     -- Update should hit boundary and reverse direction
