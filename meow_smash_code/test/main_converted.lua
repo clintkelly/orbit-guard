@@ -186,6 +186,11 @@ balls = {} -- array to track multiple balls
 player_shield = nil -- shield object (nil when inactive)
 player_paddle = nil -- paddle object (initialized in _init)
 
+-- title screen animation variables
+title_frame_counter = 0
+title_fast_blink_timer = 0
+title_is_fast_blinking = false
+
 --========================================
 -- ██████   █████  ██████  ██████  ██      ███████ 
 -- ██   ██ ██   ██ ██   ██ ██   ██ ██      ██      
@@ -1216,6 +1221,10 @@ function _init()
 	player_score = 0
 	player_combo = 0
 	player_shield = nil -- clear shield
+	-- initialize title screen animation
+	title_frame_counter = 0
+	title_fast_blink_timer = 0
+	title_is_fast_blinking = false
 	-- create shuffled level order (levels 2-15, level 1 stays first)
 	create_shuffled_levels()
 	-- initialize bricks
@@ -1333,7 +1342,32 @@ end
 
 -- start screen functions --
 function update_start()
+	-- update animation frame counter
+	title_frame_counter = title_frame_counter + 1
+	
+	-- handle fast blinking timer
+	if title_is_fast_blinking then
+		title_fast_blink_timer = title_fast_blink_timer - 1
+		if title_fast_blink_timer <= 0 then
+			title_is_fast_blinking = false
+		end
+	end
+	
 	if btnp(0) or btnp(1) or btnp(2) or btnp(3) or btnp(4) or btnp(5) then
+		-- start fast blinking effect
+		title_is_fast_blinking = true
+		title_fast_blink_timer = 60 -- blink fast for 1 second (60 frames)
+		
+		-- delay game start slightly to show the fast blink effect
+		-- we'll change state after a short delay instead of immediately
+		if title_fast_blink_timer == 60 then
+			-- just started fast blinking, don't start game yet
+			return
+		end
+	end
+	
+	-- start game after fast blink effect is mostly done
+	if title_is_fast_blinking and title_fast_blink_timer <= 45 then
 		game_state = "game"
 		-- reset game objects
 		player_paddle = paddle:new()
@@ -1348,12 +1382,68 @@ function update_start()
 		-- reset bricks and powerups
 		init_bricks()
 		powerups = {}
+		
+		-- reset title screen variables
+		title_frame_counter = 0
+		title_fast_blink_timer = 0
+		title_is_fast_blinking = false
 	end
 end
 
 function draw_start()
 	cls()
-	print("MEOW SMASH!", 35, 50, 7)
+	
+	-- title box and text positioning
+	local title_text = "MEOW SMASH!"
+	local title_x = 35
+	local title_y = 50
+	local box_padding = 4
+	local box_x1 = title_x - box_padding
+	local box_y1 = title_y - box_padding
+	local box_x2 = title_x + #title_text * 4 + box_padding - 1  -- 4 pixels per character
+	local box_y2 = title_y + 6 + box_padding  -- text height is about 6 pixels
+	
+	-- determine title color based on animation state
+	local title_color = 7  -- default white
+	
+	if title_is_fast_blinking then
+		-- fast blinking: every 3 frames
+		if title_fast_blink_timer % 6 < 3 then
+			title_color = 7  -- white
+		else
+			title_color = 0  -- black (invisible)
+		end
+	else
+		-- slow pulsing through color cycle: white -> grey -> dark -> light green -> back
+		-- cycle every 120 frames (2 seconds at 60fps)
+		local cycle_position = (title_frame_counter % 120) / 120
+		
+		if cycle_position < 0.25 then
+			-- white to grey
+			title_color = 7  -- white
+		elseif cycle_position < 0.5 then
+			-- grey to dark grey
+			title_color = 6  -- light grey
+		elseif cycle_position < 0.75 then
+			-- dark grey
+			title_color = 5  -- dark grey
+		else
+			-- light green back to white
+			title_color = 11  -- light green
+		end
+	end
+	
+	-- draw title box (only if title is visible)
+	if title_color ~= 0 then
+		rect(box_x1, box_y1, box_x2, box_y2, title_color)
+	end
+	
+	-- draw title text
+	if title_color ~= 0 then
+		print(title_text, title_x, title_y, title_color)
+	end
+	
+	-- draw instruction text (always visible)
 	print("Press any key to play", 20, 70, 6)
 end
 
