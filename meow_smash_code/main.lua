@@ -45,12 +45,13 @@ SCORING:
 --]]
 
 levels = {
-	-- level 1: simple pattern
+	-- level 1: C-shaped pattern
 	{
-		"...N..N...",
-		"...P..P...",
-		"...P.PP...",
-		"....NP...."
+		"NPPPPPPPPN",
+		"N.........",
+		"N.........",
+		"N.........",
+		"NPPPPPPPPN"
 	},
 	-- level 2: alternating staggered rows
 	{
@@ -66,17 +67,17 @@ levels = {
 	{
 		"N.S.P.S.N.",
 		".2.3.2.3.2",
-		"S.N.S.N.S.",
+		"S.N.S.P.S.",
 		".3.2.3.2.3",
 		"N.S.N.P.N."
 	},
 	-- level 4: moving bricks test
 	{
-		"UUUUUUUUUU",
+		"...........",
 		"M.P.M.M.M.",
-		".M.M.M.M.M",
-		"M.M.P.M.M.",
-		"UUUUUUUUUU"
+		".M...M...M",
+		"M..NPN..M.",
+		"..........."
 	},
 	-- level 5: powerup bricks test
 	{
@@ -85,10 +86,105 @@ levels = {
 		"NNNNNNNNNN",
 		"P.N.P.N.P.",
 		"NNNNNNNNNN"
+	},
+	-- level 6: basic mixed types
+	{
+		"N.N.N.N.N.",
+		".2.2.2.2.2",
+		"N.N.N.N.N.",
+		".S.P.S.P.S"
+	},
+	-- level 7: unbreakable walls with gaps
+	{
+		"..U......U",
+		"NNNNNNNNNN",
+		"P.2.P.2.P.",
+		"NNNNNNNNNN",
+		"..U......U"
+	},
+	-- level 8: moving brick challenge
+	{
+		".M.M.M.M.M",
+		"N.N.N.N.N.",
+		"M.M.M.M.M.",
+		".3.P.3.P.3",
+		"N.N.N.N.N."
+	},
+	-- level 9: fortress pattern
+	{
+		"...........",
+		"..N2PP2N..",
+		"..N3SS3N..",
+		"..N2PP2N..",
+		".........."
+	},
+	-- level 10: speed brick maze
+	{
+		"S.S.S.S.S.",
+		".N.P.N.P.N",
+		"S.2.3.2.S.",
+		".N.P.N.P.N",
+		"S.S.S.S.S."
+	},
+	-- level 11: heavy defense
+	{
+		"..U......U",
+		".4.4.4.4.4",
+		"...........",
+		".4.4.4.4.4",
+		"..U......U"
+	},
+	-- level 12: mixed chaos
+	{
+		"M.3.S.3.M.",
+		".P.....P..",
+		"2.M.P.M.2.",
+		".P.....P..",
+		".M.3.S.3.M"
+	},
+	-- level 13: tight corridors
+	{
+		"..N.N.N...",
+		"...........",
+		"N.P.5.P.N.",
+		"...........",
+		"..N.N.N..."
+	},
+	-- level 14: final gauntlet
+	{
+		"..M.P.M...",
+		".5.....5..",
+		"M.3.S.3.M.",
+		".5.....5..",
+		"..M.P.M..."
+	},
+	-- level 15: ultimate challenge
+	{
+		"...........",
+		"..6.P.6...",
+		"..M.S.M...",
+		"..6.P.6...",
+		"..........."
 	}
 }
 
 current_level = 1
+shuffled_levels = {} -- will hold shuffled level order after level 1
+
+-- global game variables
+game_state = "start"
+player_lives = 5
+player_score = 0
+player_combo = 0
+powerup_fall_speed = 0.5 -- speed at which powerups fall
+powerup_bottom_pause = 60 -- frames to pause at bottom before disappearing (1 second at 60fps)
+max_ball_dx_dy_ratio = 3.0 -- maximum ratio of horizontal to vertical velocity (3:1)
+default_ball_speed = 2.0 -- default ball speed
+bricks = {}
+powerups = {}
+balls = {} -- array to track multiple balls
+player_shield = nil -- shield object (nil when inactive)
+player_paddle = nil -- paddle object (initialized in _init)
 
 --========================================
 -- ██████   █████  ██████  ██████  ██      ███████ 
@@ -176,9 +272,8 @@ function paddle:draw()
 	local color = 7 -- default white
 	if self.flash_timer > 0 then
 		color = 8 -- red when flashing
-	elseif self.size_multiplier > 1.0 then
-		color = 14 -- pink when expanded
 	end
+	-- keep white color even when expanded
 	
 	-- draw paddle as three lines to simulate curve
 	-- bottom line: full width
@@ -413,7 +508,10 @@ function powerup:new(x, y)
 		height = 8,
 		dy = powerup_fall_speed,
 		active = true,
-		sprite_id = 0
+		sprite_id = 0,
+		bottom_pause_timer = 0, -- timer for pausing at bottom
+		is_paused = false, -- whether powerup is paused at bottom
+		flash_timer = 0 -- timer for flashing effect
 	}
 	setmetatable(obj, self)
 	self.__index = self
@@ -423,7 +521,26 @@ end
 function powerup:update()
 	if not self.active then return end
 	
-	-- fall down
+	-- handle paused state at bottom
+	if self.is_paused then
+		self.bottom_pause_timer -= 1
+		self.flash_timer += 1
+		
+		-- check if hit paddle while paused
+		if self:check_paddle_collision() then
+			self:collect()
+			self.active = false
+			sfx(4) -- play powerup collected sound
+		end
+		
+		-- check if pause timer expired
+		if self.bottom_pause_timer <= 0 then
+			self.active = false
+		end
+		return
+	end
+	
+	-- fall down normally
 	self.y += self.dy
 	
 	-- check if hit paddle
@@ -434,8 +551,11 @@ function powerup:update()
 	end
 	
 	-- check if hit bottom of screen
-	if self.y >= 128 then
-		self.active = false
+	if self.y >= 120 then -- start pause slightly above bottom
+		self.is_paused = true
+		self.bottom_pause_timer = powerup_bottom_pause
+		self.flash_timer = 0
+		self.y = 120 -- lock position at bottom
 	end
 end
 
@@ -453,7 +573,16 @@ end
 
 function powerup:draw()
 	if self.active then
-		spr(self.sprite_id, self.x, self.y)
+		-- flash effect when paused at bottom
+		if self.is_paused then
+			-- flash every 4 frames (fast blinking)
+			if self.flash_timer % 8 < 4 then
+				spr(self.sprite_id, self.x, self.y)
+			end
+		else
+			-- normal drawing
+			spr(self.sprite_id, self.x, self.y)
+		end
 	end
 end
 
@@ -597,7 +726,9 @@ end
 --========================================================
 function handle_brick_hit(brick, ball, destroyed)
 	if destroyed then
-		local points = 10 * (player_combo * 10 + 1)
+		-- cap combo to prevent integer overflow and balance gameplay
+		local safe_combo = min(player_combo, 10)
+		local points = 10 * (safe_combo + 1)
 		player_score += points
 		player_combo += 1 -- increase combo for each brick hit
 		-- handle special brick effects
@@ -612,11 +743,14 @@ function handle_brick_hit(brick, ball, destroyed)
 			-- powerup brick: spawn powerup
 			spawn_powerup(effect, brick.x + brick.width/2, brick.y + brick.height)
 		end
-	else
-		local points = 5 * (player_combo * 10 + 1)
+	elseif brick.breakable then
+		-- only increase combo and give points for breakable bricks that are damaged
+		local safe_combo = min(player_combo, 10)
+		local points = 5 * (safe_combo + 1)
 		player_score += points -- partial points for damaged brick
-		player_combo += 1 -- increase combo even for damaged bricks
+		player_combo += 1 -- increase combo for damaged breakable bricks
 	end
+	-- if brick is unbreakable, no points or combo increase
 	
 	-- play sound based on combo length (sound 6 to 13 max)
 	local sound_id = min(6 + player_combo - 1, 13)
@@ -647,12 +781,22 @@ end
 
 function check_brick_collisions(ball, next_x, next_y)
 	local hit_a_brick = false -- make sure we don't bounce twice
+	local corrected_x = next_x
+	local corrected_y = next_y
 	
 	for brick in all(bricks) do
 		if brick.active then
 			local brick_collision = ball:check_box_collision(next_x, next_y, brick.x, brick.y, brick.width, brick.height)
 			if brick_collision == "side" then
 				if not hit_a_brick then 
+					-- correct position before reversing direction
+					if ball.dx > 0 then
+						-- was moving right, hit left side of brick
+						corrected_x = brick.x - ball.radius
+					else
+						-- was moving left, hit right side of brick  
+						corrected_x = brick.x + brick.width + ball.radius
+					end
 					ball.dx = -ball.dx
 					hit_a_brick = true
 				end
@@ -660,6 +804,14 @@ function check_brick_collisions(ball, next_x, next_y)
 				handle_brick_hit(brick, ball, destroyed)
 			elseif brick_collision == "top" then
 				if not hit_a_brick then 
+					-- correct position before reversing direction
+					if ball.dy > 0 then
+						-- was moving down, hit top of brick
+						corrected_y = brick.y - ball.radius
+					else
+						-- was moving up, hit bottom of brick
+						corrected_y = brick.y + brick.height + ball.radius
+					end
 					ball.dy = -ball.dy
 					hit_a_brick = true
 				end
@@ -667,6 +819,13 @@ function check_brick_collisions(ball, next_x, next_y)
 				handle_brick_hit(brick, ball, destroyed)
 			end
 		end
+	end
+	
+	-- return corrected position if any collision occurred
+	if hit_a_brick then
+		return corrected_x, corrected_y
+	else
+		return nil, nil -- no collision, use normal movement
 	end
 end
 
@@ -720,61 +879,110 @@ function ball:check_box_collision(next_x, next_y, box_x, box_y, box_w, box_h)
 	-- Top of ball / bottom of box
 	local overlap_bottom = box_y + box_h - (next_y - self.radius)
 
-	min_overlap = min_all(overlap_left, overlap_right, overlap_top, overlap_bottom)
-	if min_overlap == overlap_left or min_overlap == overlap_right then
-		return "side"
+	-- Find minimum overlaps for horizontal and vertical
+	local min_horizontal = min(overlap_left, overlap_right)
+	local min_vertical = min(overlap_top, overlap_bottom)
+	
+	-- Consider ball's trajectory direction for better corner collision detection
+	-- If overlaps are similar (corner collision), use velocity to determine surface
+	local overlap_diff = abs(min_horizontal - min_vertical)
+	local corner_threshold = 1.0 -- pixels - consider it a corner if overlaps are close
+	
+	if overlap_diff <= corner_threshold then
+		-- Corner collision - use ball velocity to determine which surface to prioritize
+		-- For corner hits, prioritize the surface that would give the most "natural" bounce
+		
+		-- Determine which corner we hit based on ball position and movement
+		local ball_center_x = next_x
+		local ball_center_y = next_y
+		local brick_center_x = box_x + box_w / 2
+		local brick_center_y = box_y + box_h / 2
+		
+		-- Determine which quadrant of the brick the ball hit
+		local hit_left_side = ball_center_x < brick_center_x
+		local hit_top_side = ball_center_y < brick_center_y
+		
+		-- For corner collisions, choose surface based on ball trajectory
+		-- If ball is moving more horizontally, prioritize vertical surfaces (top/bottom)
+		-- If ball is moving more vertically, prioritize horizontal surfaces (left/right)
+		local abs_dx = abs(self.dx)
+		local abs_dy = abs(self.dy)
+		
+		if abs_dx > abs_dy then
+			-- Ball moving more horizontally - hit vertical surface (top/bottom)
+			return "top"
+		else
+			-- Ball moving more vertically - hit horizontal surface (left/right)  
+			return "side"
+		end
 	end
-	return "top"
+	
+	-- Fallback to original logic: use minimum overlap
+	if min_horizontal < min_vertical then
+		return "side"
+	else
+		return "top"
+	end
 end
 
 function ball:check_paddle_collision(next_x, next_y)
 	return self:check_box_collision(next_x, next_y, player_paddle.x, player_paddle.y, player_paddle.width, player_paddle.height)
 end
 
-function ball:update()
-	-- handle sticky state
-	if self.is_stuck_to_paddle then
-		-- position stuck balls across the paddle width
-		local stuck_balls = {}
+function ball:handle_stuck_ball_behavior()
+	-- return immediately if ball is not stuck to paddle
+	if not self.is_stuck_to_paddle then
+		return false
+	end
+	
+	-- position stuck balls across the paddle width
+	local stuck_balls = {}
+	for ball_obj in all(balls) do
+		if ball_obj.is_stuck_to_paddle then
+			add(stuck_balls, ball_obj)
+		end
+	end
+	
+	-- distribute stuck balls across paddle width
+	local ball_index = 0
+	for i, ball_obj in pairs(stuck_balls) do
+		if ball_obj == self then
+			ball_index = i
+			break
+		end
+	end
+	
+	local spacing = player_paddle.width / (#stuck_balls + 1)
+	self.x = player_paddle.x + spacing * ball_index
+	self.y = player_paddle.y - self.radius
+	
+	-- check for launch - only launch one ball per button press
+	if btnp(4) or btnp(5) then -- Z or X button
+		-- find first stuck ball and launch it
 		for ball_obj in all(balls) do
 			if ball_obj.is_stuck_to_paddle then
-				add(stuck_balls, ball_obj)
-			end
-		end
-		
-		-- distribute stuck balls across paddle width
-		local ball_index = 0
-		for i, ball_obj in pairs(stuck_balls) do
-			if ball_obj == self then
-				ball_index = i
-				break
-			end
-		end
-		
-		local spacing = player_paddle.width / (#stuck_balls + 1)
-		self.x = player_paddle.x + spacing * ball_index
-		self.y = player_paddle.y - self.radius
-		
-		-- check for launch - only launch one ball per button press
-		if btnp(4) or btnp(5) then -- Z or X button
-			-- find first stuck ball and launch it
-			for ball_obj in all(balls) do
-				if ball_obj.is_stuck_to_paddle then
-					ball_obj.is_stuck_to_paddle = false
-					player_combo = 0 -- reset combo when ball launches
-					local speed = default_ball_speed
-					if btnp(4) then -- Z button - launch left
-						ball_obj.dx = -speed * 0.707
-						ball_obj.dy = -speed * 0.707
-					else -- X button - launch right
-						ball_obj.dx = speed * 0.707
-						ball_obj.dy = -speed * 0.707
-					end
-					break -- only launch one ball
+				ball_obj.is_stuck_to_paddle = false
+				player_combo = 0 -- reset combo when ball launches
+				local speed = default_ball_speed
+				if btnp(4) then -- Z button - launch left
+					ball_obj.dx = -speed * 0.707
+					ball_obj.dy = -speed * 0.707
+				else -- X button - launch right
+					ball_obj.dx = speed * 0.707
+					ball_obj.dy = -speed * 0.707
 				end
+				break -- only launch one ball
 			end
 		end
-		return -- don't do normal physics when sticky
+	end
+	
+	return true -- ball was stuck and handled
+end
+
+function ball:update()
+	-- handle sticky state
+	if self:handle_stuck_ball_behavior() then
+		return -- ball was stuck, skip normal physics
 	end
 	
 	-- calculate next position
@@ -830,13 +1038,57 @@ function ball:update()
 		end
 	end
 	
-	-- check brick collisions
-	check_brick_collisions(self, next_x, next_y)
+	-- use swept collision detection to prevent tunneling
+	self:move_with_collision_sweep()
 	
-	-- move ball
-	self.x += self.dx
-	self.y += self.dy
+	-- handle speed boost decay
+	self:update_speed_boost()
+end
+
+function ball:move_with_collision_sweep()
+	-- calculate total movement distance
+	local total_distance = sqrt(self.dx * self.dx + self.dy * self.dy)
 	
+	-- if moving very slowly, use simple movement
+	if total_distance < 0.5 then
+		local corrected_x, corrected_y = check_brick_collisions(self, self.x + self.dx, self.y + self.dy)
+		if corrected_x and corrected_y then
+			self.x = corrected_x
+			self.y = corrected_y
+		else
+			self.x += self.dx
+			self.y += self.dy
+		end
+		return
+	end
+	
+	-- for faster movement, step through the path
+	local steps = ceil(total_distance)
+	local step_dx = self.dx / steps
+	local step_dy = self.dy / steps
+	
+	-- move step by step, checking for collisions
+	for i = 1, steps do
+		local next_x = self.x + step_dx
+		local next_y = self.y + step_dy
+		
+		-- check for collision at this step
+		local corrected_x, corrected_y = check_brick_collisions(self, next_x, next_y)
+		
+		if corrected_x and corrected_y then
+			-- collision occurred - stop here with corrected position
+			self.x = corrected_x
+			self.y = corrected_y
+			return
+		else
+			-- no collision - continue moving
+			self.x = next_x
+			self.y = next_y
+		end
+	end -- close for loop
+end -- close function
+
+function ball:update_speed_boost()
 	-- handle speed boost decay
 	if self.speed_boost_active then
 		self.speed_boost_timer -= 1
@@ -956,17 +1208,6 @@ end
 -- ██    ██ ██   ██ ██  ██  ██ ██               ██    ██    ██   ██    ██    ██      
 --  ██████  ██   ██ ██      ██ ███████     ███████    ██    ██   ██    ██    ███████ 
 --=========================================================
-game_state = "start"
-player_lives = 5
-player_score = 0
-player_combo = 0
-powerup_fall_speed = 0.5 -- speed at which powerups fall
-max_ball_dx_dy_ratio = 3.0 -- maximum ratio of horizontal to vertical velocity (3:1)
-default_ball_speed = 2.0 -- default ball speed
-bricks = {}
-powerups = {}
-balls = {} -- array to track multiple balls
-player_shield = nil -- shield object (nil when inactive)
 
 function _init()
 	player_paddle = paddle:new()
@@ -975,8 +1216,26 @@ function _init()
 	player_score = 0
 	player_combo = 0
 	player_shield = nil -- clear shield
+	-- create shuffled level order (levels 2-15, level 1 stays first)
+	create_shuffled_levels()
 	-- initialize bricks
 	init_bricks()
+end
+
+function create_shuffled_levels()
+	-- create array of level indices 2 through total levels
+	shuffled_levels = {}
+	for i = 2, #levels do
+		add(shuffled_levels, i)
+	end
+	
+	-- shuffle the array using fisher-yates algorithm
+	for i = #shuffled_levels, 2, -1 do
+		local j = flr(rnd(i)) + 1
+		local temp = shuffled_levels[i]
+		shuffled_levels[i] = shuffled_levels[j]
+		shuffled_levels[j] = temp
+	end
 end
 
 function init_bricks()
@@ -990,7 +1249,20 @@ function load_level(level_num)
 		return -- no more levels
 	end
 	
-	local level_data = levels[level_num]
+	-- determine actual level index to use
+	local actual_level_index
+	if level_num == 1 then
+		actual_level_index = 1 -- always use level 1 first
+	else
+		-- use shuffled order for levels after 1
+		local shuffled_index = level_num - 1 -- convert to shuffled array index
+		if shuffled_index > #shuffled_levels then
+			return -- no more shuffled levels
+		end
+		actual_level_index = shuffled_levels[shuffled_index]
+	end
+	
+	local level_data = levels[actual_level_index]
 	for row = 1, #level_data do
 		local row_string = level_data[row]
 		local max_cols = min(10, #row_string) -- limit to 10 bricks per row
@@ -1071,6 +1343,8 @@ function update_start()
 		player_combo = 0
 		current_level = 1
 		player_shield = nil -- clear shield
+		-- create new shuffled level order
+		create_shuffled_levels()
 		-- reset bricks and powerups
 		init_bricks()
 		powerups = {}
@@ -1207,7 +1481,7 @@ end
 function draw_level_clear()
 	-- don't clear screen - keep last game image
 	-- draw black rectangle for level clear text
-	-- draw the screen one more time so that we can clear the last brick
+	-- render the current game state first to show final brick destruction
 	draw_game()
 	rectfill(10, 40, 117, 80, 0)
 	rect(10, 40, 117, 80, 7) -- white border
