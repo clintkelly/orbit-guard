@@ -155,6 +155,10 @@ function pal(c0, c1, p)
     -- No-op for tests - palette manipulation for fade effects
 end
 
+function pset(x, y, color)
+    -- No-op for tests - set pixel for particle effects
+end
+
 --============================================
 -- AUDIO FUNCTIONS (No-op for tests)
 --============================================

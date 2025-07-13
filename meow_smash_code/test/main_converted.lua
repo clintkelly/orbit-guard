@@ -784,12 +784,67 @@ function shield_powerup:collect()
 end
 
 function activate_shield()
-	-- create a shield at bottom of paddle
+	-- create a shield at bottom of paddle with particle system
 	player_shield = {
 		active = true,
 		y = player_paddle.y + player_paddle.height, -- position shield at bottom of paddle
-		color = 12
+		color = 12,
+		particles = {} -- array to hold shield particles
 	}
+	
+	-- initialize shield particles across the screen width
+	for i = 0, 127, 2 do -- every 2 pixels across screen width
+		add(player_shield.particles, {
+			x = i,
+			base_y = player_shield.y,
+			y = player_shield.y,
+			offset_y = 0,
+			speed = 0.2 + rnd(0.4), -- random speed between 0.2 and 0.6
+			phase = rnd(1), -- random phase for wave motion
+			color = 12 -- default light blue
+		})
+	end
+end
+
+function update_shield()
+	if not player_shield or not player_shield.active then
+		return
+	end
+	
+	-- update each shield particle
+	for particle in all(player_shield.particles) do
+		-- update wave motion phase
+		particle.phase = particle.phase + particle.speed
+		if particle.phase > 1 then
+			particle.phase = particle.phase - 1
+		end
+		
+		-- calculate wave offset (sine wave for smooth motion)
+		particle.offset_y = sin(particle.phase * 2) * 2 -- 2 pixel amplitude
+		particle.y = particle.base_y + particle.offset_y
+		
+		-- randomly change particle color for sparkle effect
+		if rnd(1) < 0.1 then -- 10% chance each frame
+			local colors = {12, 6, 7} -- light blue, light grey, white
+			particle.color = colors[flr(rnd(3)) + 1]
+		end
+	end
+end
+
+function draw_shield()
+	if not player_shield or not player_shield.active then
+		return
+	end
+	
+	-- draw each shield particle
+	for particle in all(player_shield.particles) do
+		-- draw particle as a single pixel
+		pset(particle.x, particle.y, particle.color)
+		-- add slight vertical spread for thickness
+		if rnd(1) < 0.5 then
+			pset(particle.x, particle.y + 1, particle.color)
+		end
+	end
 end
 
 function spawn_additional_balls()
@@ -1631,6 +1686,9 @@ function update_game()
 		powerup:update()
 	end
 	
+	-- update shield particles
+	update_shield()
+	
 	-- remove inactive powerups
 	for i = #powerups, 1, -1 do
 		if not powerups[i].active then
@@ -1655,10 +1713,7 @@ function draw_game()
 	-- draw black bar at top for lives display
 	rectfill(0, 0, 127, 6, 0)
 	-- draw shield if active (drawn before paddle so paddle appears on top)
-	if player_shield and player_shield.active then
-		line(0, player_shield.y, 127, player_shield.y, player_shield.color)
-		line(0, player_shield.y + 1, 127, player_shield.y + 1, player_shield.color)
-	end
+	draw_shield()
 	player_paddle:draw()
 	-- draw all balls
 	for ball_obj in all(balls) do
