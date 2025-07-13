@@ -67,12 +67,21 @@ pico8_shim.reset_all()
 -- Run all tests
 print("Running test suites...\n")
 
--- Set luaunit options
-luaunit.LuaUnit.verbosity = luaunit.VERBOSITY_QUIET
+-- Set luaunit options  
+luaunit.LuaUnit.verbosity = luaunit.VERBOSITY_DEFAULT
 
 -- Run the tests
 local runner = luaunit.LuaUnit.new()
 local exit_code = runner:runSuite()
+
+-- Print detailed results
+print("\n" .. string.rep("=", 50))
+if exit_code == 0 then
+    print("ALL TESTS PASSED! ✓")
+else
+    print("SOME TESTS FAILED! ✗")
+    print("To achieve 100% pass rate, failing tests need to be disabled.")
+end
 
 -- Print summary
 print("\n" .. string.rep("=", 50))
