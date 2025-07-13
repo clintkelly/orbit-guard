@@ -298,18 +298,18 @@ function paddle:draw()
 	end
 	-- keep white color even when expanded
 	
-	-- draw paddle as three lines to simulate curve
-	-- bottom line: full width
+	-- draw paddle as three lines to simulate curve for 7 zones (A-G)
+	-- bottom line: full width (covers all zones A through G)
 	line(self.x, self.y + 2, self.x + self.width - 1, self.y + 2, color)
 	
-	-- middle line: covers zones B, C, D (from 20% to 80% of width)
-	local middle_start = self.x + self.width * 0.20
-	local middle_end = self.x + self.width * 0.80
+	-- middle line: covers zones B, C, D, E, F (from ~14.3% to ~85.7% of width)
+	local middle_start = self.x + self.width * 0.143
+	local middle_end = self.x + self.width * 0.857
 	line(middle_start, self.y + 1, middle_end, self.y + 1, color)
 	
-	-- top line: covers just zone C (from 40% to 60% of width)
-	local top_start = self.x + self.width * 0.40
-	local top_end = self.x + self.width * 0.60
+	-- top line: covers zones C, D, E (from ~28.6% to ~71.4% of width)
+	local top_start = self.x + self.width * 0.286
+	local top_end = self.x + self.width * 0.714
 	line(top_start, self.y, top_end, self.y, color)
 end
 
@@ -1261,26 +1261,33 @@ function ball:bounce_off_paddle_zone()
 
 	local middle_zone = false
 	
-	-- determine zone and bounce angle
-	if relative_pos <= 0.20 then
-		-- zone A (leftmost 20%)
+	-- determine zone and bounce angle (7 zones: A, B, C, D, E, F, G)
+	-- each zone is ~14.3% of paddle width (1/7 ≈ 0.143)
+	if relative_pos <= 0.143 then
+		-- zone A (leftmost ~14.3%)
 		bounce_angle_degrees = 150
-	elseif relative_pos <= 0.40 then
-		-- zone B (next 20%)
+	elseif relative_pos <= 0.286 then
+		-- zone B (~14.3% to 28.6%)
+		bounce_angle_degrees = 135
+	elseif relative_pos <= 0.429 then
+		-- zone C (~28.6% to 42.9%)
 		bounce_angle_degrees = 120
-	elseif relative_pos <= 0.60 then
-		-- zone C (middle 20%)
+	elseif relative_pos <= 0.571 then
+		-- zone D (middle ~42.9% to 57.1%)
 		middle_zone = true
-	elseif relative_pos <= 0.80 then
-		-- zone D (next 20%)
+	elseif relative_pos <= 0.714 then
+		-- zone E (~57.1% to 71.4%)
 		bounce_angle_degrees = 60
+	elseif relative_pos <= 0.857 then
+		-- zone F (~71.4% to 85.7%)
+		bounce_angle_degrees = 45
 	else
-		-- zone E (rightmost 20%)
+		-- zone G (rightmost ~85.7% to 100%)
 		bounce_angle_degrees = 30
 	end
 
 	if middle_zone then
-		-- middle zone: bounce normally
+		-- middle zone (D): bounce straight up
 		self.dy = -self.dy
 	else
 		-- convert angle to radians (pico-8 uses different angle system)
