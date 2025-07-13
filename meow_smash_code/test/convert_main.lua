@@ -19,14 +19,19 @@ local function convert_pico8_operators(content)
     return table.concat(lines, "\n")
 end
 
--- Read the main.lua file
-local input_file = "../main.lua"
+-- Read the main.lua file (prefer PICO-8 version if it exists)
+local input_file = "../main_pico8.lua"
 local output_file = "main_converted.lua"
 
 local file = io.open(input_file, "r")
 if not file then
-    print("Error: Could not open " .. input_file)
-    os.exit(1)
+    -- Fall back to main.lua if PICO-8 version doesn't exist
+    input_file = "../main.lua"
+    file = io.open(input_file, "r")
+    if not file then
+        print("Error: Could not open " .. input_file)
+        os.exit(1)
+    end
 end
 
 local content = file:read("*all")

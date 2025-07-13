@@ -165,6 +165,8 @@ powerup_fall_speed = 0.5 -- speed at which powerups fall
 powerup_bottom_pause = 60 -- frames to pause at bottom before disappearing (1 second at 60fps)
 max_ball_dx_dy_ratio = 3.0 -- maximum ratio of horizontal to vertical velocity (3:1)
 default_ball_speed = 2.0 -- default ball speed
+default_paddle_width = 24 -- normal paddle width
+expanded_paddle_width = 36 -- expanded paddle width (24 * 1.5)
 bricks = {}
 powerups = {}
 balls = {} -- array to track multiple balls
@@ -210,16 +212,14 @@ function paddle:new()
 	local obj = {
 		x = 52,
 		y = 120,
-		width = 24,
+		width = default_paddle_width,
 		height = 3,
-		base_width = 24, -- original width for powerup calculations
 		max_speed = 2.5, -- max speed - you hit then when the button is pressed
 		dx = 0, -- current speed
 		friction = 1.2, -- factor by which to reduce speed every frame after button is released
 		flash_timer = 0, -- timer for red flash effect
 		last_direction = 0, -- track last movement direction for ball launch
 		size_timer = 0, -- timer for temporary size effects
-		size_multiplier = 1.0, -- current size multiplier
 		sticky_timer = 0, -- timer for sticky paddle effect
 		is_sticky = false -- whether paddle is currently sticky
 	}
@@ -246,7 +246,7 @@ function paddle:update()
 		self.dx = self.dx / self.friction
 	end
 
-	self.x = self.x + self.dx
+	self.x += self.dx
 	
 	-- keep paddle on screen
 	if self.x < 0 then
@@ -258,21 +258,21 @@ function paddle:update()
 	
 	-- update flash timer
 	if self.flash_timer > 0 then
-		self.flash_timer = self.flash_timer - 1
+		self.flash_timer -= 1
 	end
 	
 	-- update size timer
 	if self.size_timer > 0 then
-		self.size_timer = self.size_timer - 1
+		self.size_timer -= 1
 		if self.size_timer <= 0 then
 			-- size effect expired, reset to normal
-			self:reset_size()
+			self:set_size(default_paddle_width)
 		end
 	end
 	
 	-- update sticky timer
 	if self.sticky_timer > 0 then
-		self.sticky_timer = self.sticky_timer - 1
+		self.sticky_timer -= 1
 		if self.sticky_timer <= 0 then
 			-- sticky effect expired
 			self.is_sticky = false
@@ -306,34 +306,18 @@ function paddle:flash()
 	self.flash_timer = 5
 end
 
-function paddle:set_temporary_size(multiplier, duration)
-	-- set temporary size multiplier and duration
-	self.size_multiplier = multiplier
-	self.size_timer = duration
+function paddle:set_size(new_width, duration)
+	-- set paddle width and optional duration
+	if duration then
+		self.size_timer = duration
+	end
 	
 	-- update width immediately, keeping paddle centered
 	local old_width = self.width
-	self.width = self.base_width * multiplier
+	self.width = new_width
 	
 	-- adjust x position to keep paddle centered
-	self.x = self.x + (old_width - self.width) / 2
-	
-	-- ensure paddle stays on screen
-	if self.x < 0 then
-		self.x = 0
-	elseif self.x + self.width > 128 then
-		self.x = 128 - self.width
-	end
-end
-
-function paddle:reset_size()
-	-- reset to normal size, keeping paddle centered
-	local old_width = self.width
-	self.size_multiplier = 1.0
-	self.width = self.base_width
-	
-	-- adjust x position to keep paddle centered
-	self.x = self.x + (old_width - self.width) / 2
+	self.x += (old_width - self.width) / 2
 	
 	-- ensure paddle stays on screen
 	if self.x < 0 then
@@ -380,8 +364,8 @@ function particle_trail:update()
 	-- update all particles
 	for i = #self.particles, 1, -1 do
 		local particle = self.particles[i]
-		particle.age = particle.age + 1
-		particle.life = particle.life - self.fade_speed
+		particle.age += 1
+		particle.life -= self.fade_speed
 		
 		-- remove dead particles
 		if particle.life <= 0 then
@@ -469,10 +453,10 @@ end
 
 function floating_text:update()
 	-- move upward
-	self.y = self.y + self.dy
+	self.y += self.dy
 	
 	-- reduce life
-	self.life = self.life - 1
+	self.life -= 1
 	
 	-- return true if expired
 	return self.life <= 0
@@ -554,14 +538,14 @@ function shaker:shake_screen()
 	local shakey = 16 - rnd(32)
 	
 	-- scale by current shake intensity
-	shakex = shakex * self.shake
-	shakey = shakey * self.shake
+	shakex *= self.shake
+	shakey *= self.shake
 	
 	-- apply camera shake
 	camera(shakex, shakey)
 	
 	-- reduce shake intensity over time
-	self.shake = self.shake * 0.95
+	self.shake *= 0.95
 	if self.shake < 0.05 then
 		self.shake = 0
 		camera(0, 0) -- ensure camera is reset when shake ends
@@ -621,7 +605,7 @@ function brick:hit()
 		return false -- unbreakable brick
 	end
 	
-	self.hits_remaining = self.hits_remaining - 1
+	self.hits_remaining -= 1
 	if self.hits_remaining <= 0 then
 		self.active = false
 		return true -- brick destroyed
@@ -720,7 +704,7 @@ end
 
 function moving_brick:update()
 	-- move the brick back and forth
-	self.x = self.x + self.move_direction * self.move_speed
+	self.x += self.move_direction * self.move_speed
 	
 	-- bounce off screen edges
 	if self.x <= 0 then
@@ -776,8 +760,8 @@ function powerup:update()
 	
 	-- handle paused state at bottom
 	if self.is_paused then
-		self.bottom_pause_timer = self.bottom_pause_timer - 1
-		self.flash_timer = self.flash_timer + 1
+		self.bottom_pause_timer -= 1
+		self.flash_timer += 1
 		
 		-- check if hit paddle while paused
 		if self:check_paddle_collision() then
@@ -794,7 +778,7 @@ function powerup:update()
 	end
 	
 	-- fall down normally
-	self.y = self.y + self.dy
+	self.y += self.dy
 	
 	-- check if hit paddle
 	if self:check_paddle_collision() then
@@ -850,7 +834,7 @@ function extra_life_powerup:new(x, y)
 end
 
 function extra_life_powerup:collect()
-	player_lives = player_lives + 1
+	player_lives += 1
 end
 
 -- multi-ball powerup subclass --
@@ -883,8 +867,8 @@ function bigger_paddle_powerup:collect()
 end
 
 function expand_paddle()
-	-- expand paddle by 50% for 10 seconds (600 frames at 60fps)
-	player_paddle:set_temporary_size(1.5, 600)
+	-- expand paddle for 10 seconds (600 frames at 60fps)
+	player_paddle:set_size(expanded_paddle_width, 600)
 end
 
 -- sticky paddle powerup subclass --
@@ -952,9 +936,9 @@ function update_shield()
 	-- update each shield particle
 	for particle in all(player_shield.particles) do
 		-- update wave motion phase
-		particle.phase = particle.phase + particle.speed
+		particle.phase += particle.speed
 		if particle.phase > 1 then
-			particle.phase = particle.phase - 1
+			particle.phase -= 1
 		end
 		
 		-- calculate wave offset (sine wave for smooth motion)
@@ -1030,8 +1014,8 @@ function handle_brick_hit(brick, ball, destroyed)
 		-- cap combo to prevent integer overflow and balance gameplay
 		local safe_combo = min(player_combo, 20)
 		local points = 10 * (safe_combo + 1)
-		player_score = player_score + points
-		player_combo = player_combo + 1 -- increase combo for each brick hit
+		player_score += points
+		player_combo += 1 -- increase combo for each brick hit
 		
 		-- create floating score text
 		local text_x = brick.x + brick.width / 2 - 8 -- center text on brick
@@ -1055,21 +1039,29 @@ function handle_brick_hit(brick, ball, destroyed)
 		-- special combo messages and rewards (only once per milestone)
 		if player_combo == 5 and not combo_milestones_reached[5] then
 			add_floating_text(text_x, text_y - 10, "awesome combo!", 11, 5) -- green with dark grey shadow
+			sfx(15) -- combo milestone sound 1
+			sfx(16) -- combo milestone sound 2
 			combo_milestones_reached[5] = true
 		elseif player_combo == 10 and not combo_milestones_reached[10] then
 			add_floating_text(text_x, text_y - 10, "incredible!", 14, 0) -- pink with black shadow
 			add_floating_text(text_x, text_y - 18, "+1 life", 14, 0) -- pink with black shadow
-			player_lives = player_lives + 1
+			player_lives += 1
+			sfx(15) -- combo milestone sound 1
+			sfx(16) -- combo milestone sound 2
 			combo_milestones_reached[10] = true
 		elseif player_combo == 15 and not combo_milestones_reached[15] then
 			add_floating_text(text_x, text_y - 10, "mind blown!!!!", 8, 0) -- red with black shadow
 			add_floating_text(text_x, text_y - 18, "+2 lives", 8, 0) -- red with black shadow
-			player_lives = player_lives + 2
+			player_lives += 2
+			sfx(15) -- combo milestone sound 1
+			sfx(16) -- combo milestone sound 2
 			combo_milestones_reached[15] = true
 		elseif player_combo == 20 and not combo_milestones_reached[20] then
 			add_floating_text(text_x, text_y - 10, "you're on fire!", 10, 8) -- yellow with red shadow
 			add_floating_text(text_x, text_y - 18, "+4 lives", 10, 8) -- yellow with red shadow
-			player_lives = player_lives + 4
+			player_lives += 4
+			sfx(15) -- combo milestone sound 1
+			sfx(16) -- combo milestone sound 2
 			combo_milestones_reached[20] = true
 		end
 		
@@ -1077,8 +1069,8 @@ function handle_brick_hit(brick, ball, destroyed)
 		local effect = brick:on_destroy()
 		if effect == "speed" then
 			-- speed brick: increase ball speed and activate decay timer
-			ball.dx = ball.dx * 1.2
-			ball.dy = ball.dy * 1.2
+			ball.dx *= 1.2
+			ball.dy *= 1.2
 			ball.speed_boost_timer = 300 -- 5 seconds at 60fps
 			ball.speed_boost_active = true
 		elseif brick.drops_powerup and effect then
@@ -1089,8 +1081,8 @@ function handle_brick_hit(brick, ball, destroyed)
 		-- only increase combo and give points for breakable bricks that are damaged
 		local safe_combo = min(player_combo, 20)
 		local points = 5 * (safe_combo + 1)
-		player_score = player_score + points -- partial points for damaged brick
-		player_combo = player_combo + 1 -- increase combo for damaged breakable bricks
+		player_score += points -- partial points for damaged brick
+		player_combo += 1 -- increase combo for damaged breakable bricks
 		
 		-- create floating score text for damaged bricks
 		local text_x = brick.x + brick.width / 2 - 6 -- center text on brick
@@ -1105,17 +1097,23 @@ function handle_brick_hit(brick, ball, destroyed)
 		elseif player_combo == 10 and not combo_milestones_reached[10] then
 			add_floating_text(text_x, text_y - 10, "incredible!", 14, 0) -- pink with black shadow
 			add_floating_text(text_x, text_y - 18, "+1 life", 14, 0) -- pink with black shadow
-			player_lives = player_lives + 1
+			player_lives += 1
+			sfx(15) -- combo milestone sound 1
+			sfx(16) -- combo milestone sound 2
 			combo_milestones_reached[10] = true
 		elseif player_combo == 15 and not combo_milestones_reached[15] then
 			add_floating_text(text_x, text_y - 10, "mind blown!!!!", 8, 0) -- red with black shadow
 			add_floating_text(text_x, text_y - 18, "+2 lives", 8, 0) -- red with black shadow
-			player_lives = player_lives + 2
+			player_lives += 2
+			sfx(15) -- combo milestone sound 1
+			sfx(16) -- combo milestone sound 2
 			combo_milestones_reached[15] = true
 		elseif player_combo == 20 and not combo_milestones_reached[20] then
 			add_floating_text(text_x, text_y - 10, "you're on fire!", 10, 8) -- yellow with red shadow
 			add_floating_text(text_x, text_y - 18, "+4 lives", 10, 8) -- yellow with red shadow
-			player_lives = player_lives + 4
+			player_lives += 4
+			sfx(15) -- combo milestone sound 1
+			sfx(16) -- combo milestone sound 2
 			combo_milestones_reached[20] = true
 		end
 	end
@@ -1398,14 +1396,14 @@ function ball:update()
 				self:bounce_off_paddle_zone()
 			end
 			player_paddle:flash()
-			player_score = player_score + 1
+			player_score += 1
 			player_combo = 0
 	combo_milestones_reached = {} -- reset combo milestones -- reset combo when ball hits paddle
 		combo_milestones_reached = {} -- reset combo milestones
 			
 			-- track paddle hits when only one brick remains
 			if count_breakable_bricks() == 1 then
-				single_brick_paddle_hits = single_brick_paddle_hits + 1
+				single_brick_paddle_hits += 1
 				
 				-- drop multi-ball powerup after 4+ hits with one brick left
 				if single_brick_paddle_hits >= 4 then
@@ -1471,8 +1469,8 @@ function ball:move_with_collision_sweep()
 			self.x = corrected_x
 			self.y = corrected_y
 		else
-			self.x = self.x + self.dx
-			self.y = self.y + self.dy
+			self.x += self.dx
+			self.y += self.dy
 		end
 		return
 	end
@@ -1506,7 +1504,7 @@ end -- close function
 function ball:update_speed_boost()
 	-- handle speed boost decay
 	if self.speed_boost_active then
-		self.speed_boost_timer = self.speed_boost_timer - 1
+		self.speed_boost_timer -= 1
 		if self.speed_boost_timer <= 0 then
 			-- speed boost expired, stop decay
 			self.speed_boost_active = false
@@ -1516,16 +1514,16 @@ function ball:update_speed_boost()
 			if current_speed > default_ball_speed then
 				-- apply friction to reduce speed
 				local friction = 0.99 -- friction coefficient
-				self.dx = self.dx * friction
-				self.dy = self.dy * friction
+				self.dx *= friction
+				self.dy *= friction
 				
 				-- check if we've reached default speed
 				local new_speed = sqrt(self.dx * self.dx + self.dy * self.dy)
 				if new_speed <= default_ball_speed then
 					-- clamp to default speed
 					local scale = default_ball_speed / new_speed
-					self.dx = self.dx * scale
-					self.dy = self.dy * scale
+					self.dx *= scale
+					self.dy *= scale
 					self.speed_boost_active = false
 				end
 			end
@@ -1597,7 +1595,7 @@ function ball:bounce_off_paddle_zone()
 		-- add slight randomness if single brick randomness is active
 		if single_brick_randomness_active then
 			local random_dx = (rnd(0.4) - 0.2) -- -0.2 to 0.2 random horizontal component
-			self.dx = self.dx + random_dx
+			self.dx += random_dx
 		end
 	else
 		-- convert angle to radians (pico-8 uses different angle system)
@@ -1608,7 +1606,7 @@ function ball:bounce_off_paddle_zone()
 		-- add slight randomness to angle if single brick randomness is active
 		if single_brick_randomness_active then
 			local random_angle_offset = (rnd(8) - 4) -- -4 to 4 degree variation
-			bounce_angle_degrees = bounce_angle_degrees + random_angle_offset
+			bounce_angle_degrees += random_angle_offset
 			angle_pico8 = bounce_angle_degrees / 360
 		end
 		
@@ -1621,7 +1619,7 @@ end
 
 function ball:draw_launch_indicators()
 	-- update launch indicator animation timer (slower)
-	launch_indicator_timer = launch_indicator_timer + 1
+	launch_indicator_timer += 1
 	
 	local line_length = 15
 	local speed = default_ball_speed
@@ -1642,7 +1640,7 @@ function ball:draw_launch_indicators()
 		
 		-- create gaps in the stream - only draw some particles
 		local gap_pattern = (i + flr(launch_indicator_timer * 0.05)) % 3 -- creates moving gaps
-		if gap_pattern ~= 0 then -- skip every 3rd particle position for gaps
+		if gap_pattern != 0 then -- skip every 3rd particle position for gaps
 			local particle_x = self.x + left_dx * line_length / 2 * total_progress
 			local particle_y = self.y + left_dy * line_length / 2 * total_progress
 			
@@ -1678,7 +1676,7 @@ function ball:draw_launch_indicators()
 		
 		-- create gaps in the stream - only draw some particles
 		local gap_pattern = (i + flr(launch_indicator_timer * 0.05)) % 3 -- creates moving gaps
-		if gap_pattern ~= 0 then -- skip every 3rd particle position for gaps
+		if gap_pattern != 0 then -- skip every 3rd particle position for gaps
 			local particle_x = self.x + right_dx * line_length / 2 * total_progress
 			local particle_y = self.y + right_dy * line_length / 2 * total_progress
 			
@@ -1772,7 +1770,7 @@ function load_level(level_num)
 		local max_cols = min(10, #row_string) -- limit to 10 bricks per row
 		for col = 1, max_cols do
 			local char = sub(row_string, col, col)
-			if char ~= "." then -- not empty space
+			if char != "." then -- not empty space
 				local brick_x = (col - 1) * 12 + 4 -- 12 pixels spacing (10 width + 2 gap), start at x=4
 				local brick_y = 15 + (row - 1) * 6 -- start at y=15, 6 pixels spacing (4 height + 2 gap)
 				
@@ -1801,7 +1799,7 @@ function count_breakable_bricks()
 	local count = 0
 	for brick in all(bricks) do
 		if brick.active and brick.breakable then
-			count = count + 1
+			count += 1
 		end
 	end
 	return count
@@ -1839,7 +1837,7 @@ function _draw()
 	
 	-- fade the screen
 	pal()
-	if fadeperc ~= 0 then
+	if fadeperc != 0 then
 		fadepal(fadeperc)
 	end
 end
@@ -1847,11 +1845,11 @@ end
 -- start screen functions --
 function update_start()
 	-- update animation frame counter
-	title_frame_counter = title_frame_counter + 1
+	title_frame_counter += 1
 	
 	-- handle fast blinking timer
 	if title_is_fast_blinking then
-		title_fast_blink_timer = title_fast_blink_timer - 1
+		title_fast_blink_timer -= 1
 		if title_fast_blink_timer <= 0 then
 			title_is_fast_blinking = false
 		end
@@ -1876,7 +1874,7 @@ function update_start()
 	-- start fade after fast blink effect is mostly done
 	if title_is_fast_blinking and title_fast_blink_timer <= 45 then
 		-- start fade to black
-		fadeperc = fadeperc + 0.025  -- fade speed (2x slower)
+		fadeperc += 0.025  -- fade speed (2x slower)
 		
 		-- once fully faded, start the game
 		if fadeperc >= 1.0 then
@@ -1954,7 +1952,7 @@ function draw_start()
 	end
 	
 	-- draw instruction text (only if visible)
-	if instruction_color ~= 0 then
+	if instruction_color != 0 then
 		print("Press any key to play", 20, 70, instruction_color)
 	end
 end
@@ -1977,7 +1975,7 @@ function update_game()
 	
 	-- check if all balls are lost
 	if #balls == 0 then
-		player_lives = player_lives - 1
+		player_lives -= 1
 		player_combo = 0
 	combo_milestones_reached = {} -- reset combo milestones
 		-- reset single brick challenge tracking when losing life
@@ -2027,7 +2025,7 @@ function update_game()
 	
 	-- check if level is complete
 	if count_breakable_bricks() == 0 then
-		current_level = current_level + 1
+		current_level += 1
 		-- reset single brick challenge tracking for next level
 		single_brick_paddle_hits = 0
 		single_brick_randomness_active = false
@@ -2072,7 +2070,7 @@ end
 function update_game_over()
 	-- handle shake timer countdown
 	if game_over_shake_timer > 0 then
-		game_over_shake_timer = game_over_shake_timer - 1
+		game_over_shake_timer -= 1
 		if game_over_shake_timer <= 0 then
 			-- shake period over, show game over text
 			game_over_text_visible = true
@@ -2082,12 +2080,12 @@ function update_game_over()
 	
 	-- update blink timer for game over text
 	if game_over_text_visible then
-		game_over_blink_timer = game_over_blink_timer + 1
+		game_over_blink_timer += 1
 	end
 	
 	-- handle fade sequence
 	if game_over_fade_started then
-		fadeperc = fadeperc + 0.025 -- same fade speed as title screen
+		fadeperc += 0.025 -- same fade speed as title screen
 		if fadeperc >= 1.0 then
 			-- fade complete, go to start screen
 			game_state = "start"
@@ -2152,7 +2150,7 @@ end
 function update_level_clear()
 	-- handle fade sequence
 	if level_clear_fade_started then
-		fadeperc = fadeperc + 0.025 -- same fade speed as other screens
+		fadeperc += 0.025 -- same fade speed as other screens
 		if fadeperc >= 1.0 then
 			-- fade complete, load next level and start game
 			sfx(0)
@@ -2195,7 +2193,7 @@ end
 function update_victory()
 	-- handle fade sequence
 	if victory_fade_started then
-		fadeperc = fadeperc + 0.025 -- same fade speed as other screens
+		fadeperc += 0.025 -- same fade speed as other screens
 		if fadeperc >= 1.0 then
 			-- fade complete, go to start screen
 			game_state = "start"
