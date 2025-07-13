@@ -209,6 +209,9 @@ level_clear_fade_started = false -- whether fade has started for level transitio
 -- victory sequence variables
 victory_fade_started = false -- whether fade has started for victory screen
 
+-- launch indicator animation variables
+launch_indicator_timer = 0 -- timer for particle animation
+
 --========================================
 -- ██████   █████  ██████  ██████  ██      ███████ 
 -- ██   ██ ██   ██ ██   ██ ██   ██ ██      ██      
@@ -1358,15 +1361,43 @@ function ball:bounce_off_paddle_zone()
 end
 
 function ball:draw_launch_indicators()
+	-- update launch indicator animation timer
+	launch_indicator_timer = launch_indicator_timer + 1
+	
 	local line_length = 15
 	local speed = default_ball_speed
+	local num_particles = 5 -- number of particles per stream
 	
 	-- left launch indicator (Z button)
 	local left_dx = -speed * 0.707
 	local left_dy = -speed * 0.707
 	local left_end_x = self.x + left_dx * line_length / 2
 	local left_end_y = self.y + left_dy * line_length / 2
-	line(self.x, self.y, left_end_x, left_end_y, 6) -- cyan line
+	
+	-- draw animated particle stream for left direction
+	for i = 1, num_particles do
+		-- calculate particle position along trajectory with animation offset
+		local progress = (i - 1) / (num_particles - 1) -- 0 to 1
+		local anim_offset = (launch_indicator_timer * 0.1 + i * 0.2) % 1 -- flowing animation
+		local total_progress = (progress + anim_offset) % 1
+		
+		local particle_x = self.x + left_dx * line_length / 2 * total_progress
+		local particle_y = self.y + left_dy * line_length / 2 * total_progress
+		
+		-- use colors 8 (red) and 9 (orange) for shading
+		local color = (i % 2 == 0) and 8 or 9 -- alternate between red and orange
+		pset(particle_x, particle_y, color)
+		
+		-- add some particle spread for thickness
+		if rnd(1) < 0.6 then
+			pset(particle_x + 1, particle_y, color)
+		end
+		if rnd(1) < 0.4 then
+			pset(particle_x, particle_y + 1, color)
+		end
+	end
+	
+	-- draw Z button label
 	print("z", left_end_x - 2, left_end_y - 3, 6)
 	
 	-- right launch indicator (X button)
@@ -1374,7 +1405,31 @@ function ball:draw_launch_indicators()
 	local right_dy = -speed * 0.707
 	local right_end_x = self.x + right_dx * line_length / 2
 	local right_end_y = self.y + right_dy * line_length / 2
-	line(self.x, self.y, right_end_x, right_end_y, 6) -- cyan line
+	
+	-- draw animated particle stream for right direction
+	for i = 1, num_particles do
+		-- calculate particle position along trajectory with animation offset
+		local progress = (i - 1) / (num_particles - 1) -- 0 to 1
+		local anim_offset = (launch_indicator_timer * 0.1 + i * 0.2) % 1 -- flowing animation
+		local total_progress = (progress + anim_offset) % 1
+		
+		local particle_x = self.x + right_dx * line_length / 2 * total_progress
+		local particle_y = self.y + right_dy * line_length / 2 * total_progress
+		
+		-- use colors 8 (red) and 9 (orange) for shading
+		local color = (i % 2 == 0) and 8 or 9 -- alternate between red and orange
+		pset(particle_x, particle_y, color)
+		
+		-- add some particle spread for thickness
+		if rnd(1) < 0.6 then
+			pset(particle_x + 1, particle_y, color)
+		end
+		if rnd(1) < 0.4 then
+			pset(particle_x, particle_y + 1, color)
+		end
+	end
+	
+	-- draw X button label
 	print("x", right_end_x - 2, right_end_y - 3, 6)
 end
 
