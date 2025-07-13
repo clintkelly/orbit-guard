@@ -203,6 +203,12 @@ game_over_text_visible = false -- whether to show game over text
 game_over_blink_timer = 0 -- timer for blinking text
 game_over_fade_started = false -- whether fade has started
 
+-- level clear sequence variables
+level_clear_fade_started = false -- whether fade has started for level transition
+
+-- victory sequence variables
+victory_fade_started = false -- whether fade has started for victory screen
+
 --========================================
 -- ██████   █████  ██████  ██████  ██      ███████ 
 -- ██   ██ ██   ██ ██   ██ ██   ██ ██      ██      
@@ -1748,16 +1754,32 @@ end
 
 -- level clear functions --
 function update_level_clear()
+	-- handle fade sequence
+	if level_clear_fade_started then
+		fadeperc = fadeperc + 0.025 -- same fade speed as other screens
+		if fadeperc >= 1.0 then
+			-- fade complete, load next level and start game
+			sfx(0)
+			-- reset ball and paddle for next level
+			balls = {ball:new()} -- reset to single ball
+			player_paddle = paddle:new()
+			player_combo = 0
+			powerups = {} -- clear any remaining powerups
+			player_shield = nil -- clear shield for next level
+			load_level(current_level)
+			game_state = "game"
+			-- reset level clear variables
+			level_clear_fade_started = false
+			fadeperc = 0
+		end
+		return -- don't process button input during fade
+	end
+	
+	-- handle button press to start fade
 	if btnp(0) or btnp(1) or btnp(2) or btnp(3) or btnp(4) or btnp(5) then
-		sfx(0)
-		-- reset ball and paddle for next level
-		balls = {ball:new()} -- reset to single ball
-		player_paddle = paddle:new()
-		player_combo = 0
-		powerups = {} -- clear any remaining powerups
-		player_shield = nil -- clear shield for next level
-		load_level(current_level)
-		game_state = "game"
+		-- start fade sequence
+		level_clear_fade_started = true
+		sfx(14) -- play same sound as other transitions
 	end
 end
 
@@ -1774,8 +1796,24 @@ end
 
 -- victory functions --
 function update_victory()
+	-- handle fade sequence
+	if victory_fade_started then
+		fadeperc = fadeperc + 0.025 -- same fade speed as other screens
+		if fadeperc >= 1.0 then
+			-- fade complete, go to start screen
+			game_state = "start"
+			-- reset victory variables
+			victory_fade_started = false
+			fadeperc = 0
+		end
+		return -- don't process button input during fade
+	end
+	
+	-- handle button press to start fade
 	if btnp(0) or btnp(1) or btnp(2) or btnp(3) or btnp(4) or btnp(5) then
-		game_state = "start"
+		-- start fade sequence
+		victory_fade_started = true
+		sfx(14) -- play same sound as other transitions
 	end
 end
 
